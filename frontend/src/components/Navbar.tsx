@@ -1,16 +1,8 @@
-import React from "react";
-import {
-  ShieldCheck,
-  Cpu,
-  Radio,
-  FileCode,
-  Eye,
-  Database,
-  Layers,
-  Sparkles,
-} from "lucide-react";
+import React, { useEffect, useState } from "react";
+import { ShieldCheck, Server, Search, Radio, Cpu } from "lucide-react";
+import { fetchAvailableTools } from "../services/api";
 
-export type NavTab = "workbench" | "multimodal" | "models" | "airgap" | "knowledge";
+export type NavTab = "scanner" | "network" | "models";
 
 interface NavbarProps {
   activeTab: NavTab;
@@ -18,21 +10,35 @@ interface NavbarProps {
   isRunning: boolean;
 }
 
-export const Navbar: React.FC<NavbarProps> = ({
-  activeTab,
-  setActiveTab,
-  isRunning,
-}) => {
+export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab, isRunning }) => {
+  const [toolsLoaded, setToolsLoaded] = useState(false);
+
+  useEffect(() => {
+    fetchAvailableTools()
+      .then(() => {
+        setToolsLoaded(true);
+      })
+      .catch(() => {
+        setToolsLoaded(false);
+      });
+  }, []);
+
+  const tabs = [
+    { id: "scanner" as NavTab, label: "Analysis Scanner", icon: <Search size={16} /> },
+    { id: "models" as NavTab, label: "Model Routing", icon: <Cpu size={16} /> },
+    { id: "network" as NavTab, label: "Network Sovereignty", icon: <Radio size={16} /> },
+  ];
+
   return (
     <header
       style={{
-        background: "linear-gradient(180deg, #090f20 0%, #060a17 100%)",
-        borderBottom: "1px solid #1e293b",
-        padding: "0.85rem 1.5rem",
+        background: "var(--bg-primary)",
+        borderBottom: "1px solid var(--border-dim)",
+        padding: "0 1.5rem",
         position: "sticky",
         top: 0,
         zIndex: 50,
-        boxShadow: "0 4px 20px rgba(0,0,0,0.5)",
+        boxShadow: "var(--shadow-card)",
       }}
     >
       <div
@@ -40,259 +46,119 @@ export const Navbar: React.FC<NavbarProps> = ({
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
-          maxWidth: "1600px",
+          maxWidth: "1560px",
           margin: "0 auto",
+          height: "64px",
+          gap: "1.5rem",
         }}
       >
-        {/* Brand & Sovereignty Emblem */}
-        <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
+        {/* ── Brand ── */}
+        <div style={{ display: "flex", alignItems: "center", gap: "0.85rem", flexShrink: 0 }}>
           <div
             style={{
-              width: "42px",
-              height: "42px",
-              borderRadius: "10px",
-              background: "linear-gradient(135deg, #10b981 0%, #047857 100%)",
+              width: "36px",
+              height: "36px",
+              borderRadius: "8px",
+              background: "var(--amber-500)",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              boxShadow: "0 0 16px rgba(16, 185, 129, 0.4)",
-              border: "1px solid rgba(255,255,255,0.2)",
+              flexShrink: 0,
             }}
           >
-            <ShieldCheck size={26} color="#ffffff" />
+            <ShieldCheck size={22} color="#fff" />
           </div>
 
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
               <span
                 style={{
-                  fontWeight: 800,
-                  fontSize: "1.25rem",
-                  letterSpacing: "0.05em",
-                  color: "#ffffff",
-                  background: "linear-gradient(90deg, #ffffff 0%, #93c5fd 100%)",
-                  WebkitBackgroundClip: "text",
-                  WebkitTextFillColor: "transparent",
-                }}
-              >
-                KAVACH AI
-              </span>
-              <span
-                style={{
-                  fontSize: "0.65rem",
-                  fontFamily: "var(--font-mono)",
                   fontWeight: 700,
-                  padding: "0.15rem 0.45rem",
-                  borderRadius: "4px",
-                  background: "rgba(59, 130, 246, 0.2)",
-                  color: "#60a5fa",
-                  border: "1px solid rgba(59, 130, 246, 0.35)",
+                  fontSize: "1.1rem",
+                  color: "var(--text-primary)",
                 }}
               >
-                v1.0 SOVEREIGN WORKBENCH
+                KAVACH Sovereign AI
               </span>
             </div>
             <div
               style={{
                 fontSize: "0.75rem",
-                color: "#94a3b8",
-                display: "flex",
-                alignItems: "center",
-                gap: "0.5rem",
+                color: "var(--text-dim)",
               }}
             >
-              <span>On-Premise Industrial Agentic Intelligence</span>
-              <span style={{ color: "#334155" }}>•</span>
-              <span style={{ color: "#10b981", fontWeight: 600 }}>PSU / Refinery Grade</span>
+              Enterprise Demo Environment
             </div>
           </div>
         </div>
 
-        {/* Navigation Tabs */}
-        <nav style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
-          <button
-            onClick={() => setActiveTab("workbench")}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "0.5rem",
-              padding: "0.55rem 0.95rem",
-              borderRadius: "8px",
-              fontSize: "0.85rem",
-              fontWeight: 600,
-              cursor: "pointer",
-              transition: "all 0.2s ease",
-              background:
-                activeTab === "workbench"
-                  ? "rgba(16, 185, 129, 0.15)"
-                  : "transparent",
-              color: activeTab === "workbench" ? "#34d399" : "#94a3b8",
-              border:
-                activeTab === "workbench"
-                  ? "1px solid rgba(16, 185, 129, 0.4)"
-                  : "1px solid transparent",
-            }}
-          >
-            <Layers size={16} />
-            <span>Agent Studio</span>
-            {isRunning && (
-              <span
-                style={{
-                  width: "6px",
-                  height: "6px",
-                  borderRadius: "50%",
-                  backgroundColor: "#10b981",
-                  display: "inline-block",
-                  animation: "pulse-slow 1.5s infinite",
-                }}
-              />
-            )}
-          </button>
-
-          <button
-            onClick={() => setActiveTab("multimodal")}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "0.5rem",
-              padding: "0.55rem 0.95rem",
-              borderRadius: "8px",
-              fontSize: "0.85rem",
-              fontWeight: 600,
-              cursor: "pointer",
-              transition: "all 0.2s ease",
-              background:
-                activeTab === "multimodal"
-                  ? "rgba(6, 182, 212, 0.15)"
-                  : "transparent",
-              color: activeTab === "multimodal" ? "#38bdf8" : "#94a3b8",
-              border:
-                activeTab === "multimodal"
-                  ? "1px solid rgba(6, 182, 212, 0.4)"
-                  : "1px solid transparent",
-            }}
-          >
-            <Eye size={16} />
-            <span>OCR & P&ID Lab</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab("models")}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "0.5rem",
-              padding: "0.55rem 0.95rem",
-              borderRadius: "8px",
-              fontSize: "0.85rem",
-              fontWeight: 600,
-              cursor: "pointer",
-              transition: "all 0.2s ease",
-              background:
-                activeTab === "models"
-                  ? "rgba(139, 92, 246, 0.15)"
-                  : "transparent",
-              color: activeTab === "models" ? "#a78bfa" : "#94a3b8",
-              border:
-                activeTab === "models"
-                  ? "1px solid rgba(139, 92, 246, 0.4)"
-                  : "1px solid transparent",
-            }}
-          >
-            <Sparkles size={16} />
-            <span>Model Router</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab("airgap")}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "0.5rem",
-              padding: "0.55rem 0.95rem",
-              borderRadius: "8px",
-              fontSize: "0.85rem",
-              fontWeight: 600,
-              cursor: "pointer",
-              transition: "all 0.2s ease",
-              background:
-                activeTab === "airgap"
-                  ? "rgba(16, 185, 129, 0.15)"
-                  : "transparent",
-              color: activeTab === "airgap" ? "#34d399" : "#94a3b8",
-              border:
-                activeTab === "airgap"
-                  ? "1px solid rgba(16, 185, 129, 0.4)"
-                  : "1px solid transparent",
-            }}
-          >
-            <Radio size={16} />
-            <span>Air-Gap Radar</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab("knowledge")}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "0.5rem",
-              padding: "0.55rem 0.95rem",
-              borderRadius: "8px",
-              fontSize: "0.85rem",
-              fontWeight: 600,
-              cursor: "pointer",
-              transition: "all 0.2s ease",
-              background:
-                activeTab === "knowledge"
-                  ? "rgba(245, 158, 11, 0.15)"
-                  : "transparent",
-              color: activeTab === "knowledge" ? "#fbbf24" : "#94a3b8",
-              border:
-                activeTab === "knowledge"
-                  ? "1px solid rgba(245, 158, 11, 0.4)"
-                  : "1px solid transparent",
-            }}
-          >
-            <Database size={16} />
-            <span>Knowledge Vault</span>
-          </button>
+        {/* ── Tabs ── */}
+        <nav style={{ display: "flex", gap: "0.5rem" }}>
+          {tabs.map(tab => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "0.5rem",
+                padding: "0.5rem 1rem",
+                borderRadius: "6px",
+                border: "none",
+                background: activeTab === tab.id ? "var(--bg-raised)" : "transparent",
+                color: activeTab === tab.id ? "var(--amber-500)" : "var(--text-muted)",
+                fontWeight: activeTab === tab.id ? 600 : 500,
+                fontSize: "0.9rem",
+                cursor: "pointer",
+                transition: "all 0.2s ease"
+              }}
+            >
+              {tab.icon}
+              {tab.label}
+              {tab.id === "scanner" && isRunning && (
+                <span
+                  style={{
+                    width: "6px",
+                    height: "6px",
+                    borderRadius: "50%",
+                    background: "var(--amber-500)",
+                    marginLeft: "0.25rem",
+                    animation: "pulse-slow 1.5s infinite"
+                  }}
+                />
+              )}
+            </button>
+          ))}
         </nav>
 
-        {/* Live Hardware Telemetry */}
-        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-          {/* Air-Gap Status Indicator */}
-          <div className="badge-sovereign">
-            <span
-              style={{
-                width: "8px",
-                height: "8px",
-                borderRadius: "50%",
-                backgroundColor: "#10b981",
-                display: "inline-block",
-                boxShadow: "0 0 8px #10b981",
-              }}
-            />
-            <span>AIR-GAPPED // 0 EGRESS</span>
-          </div>
-
-          {/* Local GPU Telemetry */}
+        {/* ── Status Bar ── */}
+        <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", flexShrink: 0 }}>
           <div
             style={{
               display: "flex",
               alignItems: "center",
               gap: "0.4rem",
-              padding: "0.3rem 0.65rem",
-              background: "#0c1322",
-              border: "1px solid #1e293b",
+              padding: "0.35rem 0.75rem",
+              background: "var(--bg-raised)",
+              border: "1px solid var(--border-dim)",
               borderRadius: "6px",
-              fontFamily: "var(--font-mono)",
-              fontSize: "0.75rem",
-              color: "#94a3b8",
+              fontSize: "0.8rem",
+              color: "var(--text-muted)",
             }}
           >
-            <Cpu size={14} color="#38bdf8" />
-            <span style={{ color: "#f1f5f9" }}>NVIDIA RTX-4090</span>
-            <span style={{ color: "#34d399", fontWeight: 700 }}>21.4 / 24 GB</span>
+            {toolsLoaded ? (
+              <>
+                <Server size={14} color="var(--green-500)" />
+                <span style={{ color: "var(--text-primary)", fontWeight: 500 }}>
+                  System Online
+                </span>
+              </>
+            ) : (
+              <>
+                <Server size={14} color="var(--red-500)" />
+                <span>Disconnected</span>
+              </>
+            )}
           </div>
         </div>
       </div>
