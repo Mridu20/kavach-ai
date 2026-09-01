@@ -405,26 +405,30 @@ const ResultsPhase: React.FC<{
           >
             <ClipboardList size={18} color="var(--amber-500)" />
             <h3 style={{ fontSize: "1rem", fontWeight: 600, color: "var(--text-primary)" }}>
-              Key Findings
+              Key Findings & Ingestion Summary
             </h3>
           </div>
           <div className="findings-grid">
-            {findingsEntries.map(([key, val]) => (
-              <div key={key} className="finding-cell">
-                <div className="finding-cell__label">
-                  {key.replace(/_/g, " ").toUpperCase()}
+            {findingsEntries
+              .filter(([k, v]) => typeof v !== "object" || v === null)
+              .map(([key, val]) => (
+                <div key={key} className="finding-cell">
+                  <div className="finding-cell__label">
+                    {key.replace(/_/g, " ").toUpperCase()}
+                  </div>
+                  <div className="finding-cell__value">
+                    {typeof val === "boolean"
+                      ? val
+                        ? "Yes"
+                        : "No"
+                      : typeof val === "number"
+                      ? val.toLocaleString()
+                      : String(val).length > 80
+                      ? String(val).slice(0, 80) + "..."
+                      : String(val)}
+                  </div>
                 </div>
-                <div className="finding-cell__value">
-                  {typeof val === "boolean"
-                    ? val
-                      ? "Yes"
-                      : "No"
-                    : typeof val === "number"
-                    ? val.toLocaleString()
-                    : String(val)}
-                </div>
-              </div>
-            ))}
+              ))}
           </div>
         </div>
       )}

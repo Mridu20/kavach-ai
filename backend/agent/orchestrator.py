@@ -154,9 +154,13 @@ class AgentOrchestrator:
         if tool_name == "ocr_pdf_tool":
             state.findings["ocr_extracted_text"] = output.get("extracted_text", "")
             state.findings["tables_found"] = output.get("tables_found", 0)
+            if "structured_findings" in output:
+                state.findings["structured_findings"] = output["structured_findings"]
         elif tool_name == "vision_analysis_tool":
             state.findings["vision_analysis"] = output.get("analysis", "")
             state.findings["confidence"] = output.get("confidence", 0.0)
+            if "structured_findings" in output and "structured_findings" not in state.findings:
+                state.findings["structured_findings"] = output["structured_findings"]
         elif tool_name == "rag_search_tool":
             results = output.get("results", [])
             for res in results:

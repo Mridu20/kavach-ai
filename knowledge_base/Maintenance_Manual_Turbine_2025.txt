@@ -1,0 +1,19 @@
+================================================================================
+MAINTENANCE MANUAL: HEAVY INDUSTRIAL STEAM TURBINE (MODEL T-850)
+Document ID: KAVACH-MM-TURBINE-2025
+Classification: Sovereign Confidential Technical Manual
+================================================================================
+
+SECTION 1: ROTOR & BEARING MAINTENANCE
+1.1 Vibration Thresholds:
+    - Normal operating vibration: < 1.5 mm/s RMS.
+    - Warning threshold: 2.8 mm/s RMS — schedule rotor balancing during next maintenance cycle.
+    - Critical Trip threshold: 4.5 mm/s RMS — automated turbine trip system engages within 3 seconds.
+
+SECTION 2: LUBRICATION & COOLING
+2.1 Synthetic Oil Specs: ISO VG 46 turbine oil.
+2.2 Oil filter change interval: Every 2,000 operating hours or when differential pressure across filter exceeds 1.2 bar.
+
+SECTION 3: SEAL & VALVE REPLACEMENT PROCEDURES
+3.1 Secondary containment seal replacement: Required every 12 months for heavy steam turbine housing.
+3.2 Main steam stop valve inspection: Perform dye penetrant testing on valve stem every 6 months.
