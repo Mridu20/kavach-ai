@@ -78,3 +78,21 @@ def submit_human_approval(req: HumanApprovalRequest):
 def list_available_tools():
     """Lists all sovereign local tools registered in the agent hub."""
     return orchestrator.tool_registry.list_tools()
+
+
+@router.post("/ingest")
+def ingest_document(file_path: str, force_ocr: bool = False, force_vlm: bool = False):
+    """Phase 2 Document & Vision Ingestion API endpoint."""
+    from ingestion import extract_content
+    result = extract_content(file_path=file_path, force_ocr=force_ocr, force_vlm=force_vlm)
+    return result.model_dump()
+
+
+@router.get("/ingest/sample")
+def get_sample_ingestion():
+    """Returns sample Phase 2 document & vision ingestion result."""
+    from ingestion import extract_content
+    sample_path = "ingestion/samples/sample_plant_inspection.txt"
+    result = extract_content(file_path=sample_path)
+    return result.model_dump()
+

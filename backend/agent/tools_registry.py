@@ -30,12 +30,16 @@ class MockOCRTool(BaseAgentTool):
     category = "document"
 
     def run(self, file_path: str = "", pages: Optional[List[int]] = None, **kwargs) -> Dict[str, Any]:
+        from ingestion import extract_content
+        ingest_res = extract_content(file_path=file_path)
         return {
             "file_path": file_path,
-            "extracted_text": f"[MOCK OCR OUTPUT] Extracted 4 pages from {file_path}. Document contains technical inspection findings.",
-            "pages_processed": pages or [1, 2, 3, 4],
+            "extracted_text": ingest_res.raw_text,
+            "extraction_method": ingest_res.extraction_method,
+            "pages_processed": ingest_res.pages_processed,
             "tables_found": 2,
-            "handwriting_detected": True,
+            "handwriting_detected": ingest_res.structured.handwriting_detected,
+            "structured_findings": [f.model_dump() for f in ingest_res.structured.findings],
         }
 
 
@@ -70,12 +74,16 @@ class MockVisionTool(BaseAgentTool):
     category = "vision"
 
     def run(self, image_path: str = "", prompt: str = "", **kwargs) -> Dict[str, Any]:
+        from ingestion import extract_content
+        ingest_res = extract_content(file_path=image_path, force_vlm=True)
         return {
             "image_path": image_path,
-            "analysis": "[MOCK VISION OUTPUT] Identified surface cracks near weld joint B-12. Risk level: HIGH.",
+            "analysis": ingest_res.raw_text,
             "confidence": 0.94,
-            "detected_objects": ["weld_joint", "surface_crack", "corrosion_spot"],
+            "detected_objects": ["weld_joint_B12", "surface_crack", "corrosion_spot"],
+            "structured_findings": [f.model_dump() for f in ingest_res.structured.findings],
         }
+
 
 
 class MockSandboxCodeTool(BaseAgentTool):
