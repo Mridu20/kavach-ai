@@ -1,0 +1,27 @@
+================================================================================
+STANDARD OPERATING PROCEDURE: INDUSTRIAL SAFETY & PRESSURE VESSEL INSPECTION
+Document ID: KAVACH-SOP-SAFETY-2025-V3
+Classification: Sovereign Confidential Internal
+================================================================================
+
+SECTION 1: OVERVIEW & SCOPE
+1.1 Purpose: To establish mandatory guidelines for inspection, pressure testing, and emergency shutdown of industrial boilers, high-pressure vessels, and fuel pipelines across facility units.
+1.2 Scope: Mandatory for all inspection personnel, field engineers, and automated diagnostic agents.
+
+SECTION 2: CORROSION THRESHOLDS & MANDATORY SHUTDOWN PROTOCOL
+2.1 Corrosion Tolerance Limit:
+    - Maximum allowable wall thickness degradation is 0.5 mm from initial baseline specs.
+    - If non-destructive testing (NDT) reveals wall thinning exceeding 0.5 mm, an immediate emergency shutdown must be initiated within 15 minutes.
+2.2 Inspection Intervals:
+    - Primary containment vessels: Bi-monthly ultrasonic thickness check.
+    - Secondary pressure relief valves: Quarterly recalibration and seal check.
+
+SECTION 3: SEAL & VALVE REPLACEMENT PROCEDURES
+3.1 Secondary containment seals: Must be replaced every 12 months, or immediately upon detection of micro-fractures during inspection.
+3.2 Emergency Bypass Valves: Must undergo pneumatic actuation test every 30 days.
+
+SECTION 4: HAZARD RESPONSE & CONTAINMENT
+4.1 In the event of secondary pressure drop > 5% within 60 seconds:
+    - Step 1: Engage automatic isolation damper.
+    - Step 2: Trigger plant-wide alarm Level 2.
+    - Step 3: Dispatch manual inspection team with safety gear.

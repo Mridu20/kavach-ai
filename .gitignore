@@ -12,13 +12,18 @@ dist/
 .env
 .env.local
 
-# Storage (don't commit uploaded files/outputs)
+# Storage (don't commit uploaded files/outputs/databases)
 backend/storage/uploads/*
 backend/storage/outputs/*
 backend/storage/logs/*
+backend/storage/chroma_db/
+backend/storage/test_chroma_db/
 !backend/storage/uploads/.gitkeep
 !backend/storage/outputs/.gitkeep
 !backend/storage/logs/.gitkeep
+
+# Pytest / Cache
+.pytest_cache/
 
 # OS
 .DS_Store

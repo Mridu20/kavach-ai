@@ -6,6 +6,7 @@ Sovereign Industrial AI Workbench.
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from backend.api.agent_router import router as agent_router
+from backend.api.rag_router import router as rag_router
 
 app = FastAPI(
     title="KAVACH AI - Sovereign Industrial AI Workbench API",
@@ -23,6 +24,7 @@ app.add_middleware(
 )
 
 app.include_router(agent_router)
+app.include_router(rag_router)
 
 
 @app.get("/")

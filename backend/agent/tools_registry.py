@@ -49,6 +49,18 @@ class MockRAGSearchTool(BaseAgentTool):
     category = "retrieval"
 
     def run(self, query: str = "", top_k: int = 3, **kwargs) -> Dict[str, Any]:
+        try:
+            from backend.rag.store import get_vector_store
+            store = get_vector_store()
+            results = store.query(query_text=query, top_k=top_k)
+            if results:
+                return {
+                    "query": query,
+                    "results": results,
+                }
+        except Exception as e:
+            pass
+
         return {
             "query": query,
             "results": [
