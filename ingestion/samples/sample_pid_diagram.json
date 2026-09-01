@@ -1,0 +1,28 @@
+{
+  "diagram_id": "PID-REF-U4-092",
+  "title": "Piping & Instrumentation Diagram - Distillation Column Feed",
+  "plant_unit": "Refinery Unit 4",
+  "rev_number": "3.1",
+  "visual_defects_identified": [
+    {
+      "tag_id": "WELD-B12",
+      "component": "Circumferential Weld B-12",
+      "coordinates": {"x": 420, "y": 180, "width": 65, "height": 40},
+      "defect_type": "surface_crack",
+      "severity": "HIGH"
+    },
+    {
+      "tag_id": "PIPE-SEC-03",
+      "component": "10-inch Hydrocarbon Feed Pipe",
+      "coordinates": {"x": 680, "y": 310, "width": 120, "height": 55},
+      "defect_type": "localized_corrosion_thinning",
+      "severity": "CRITICAL"
+    }
+  ],
+  "handwritten_notes": [
+    {
+      "location": "Bottom Margin - Page 1",
+      "text": "UT probe re-calibration required before line startup - Engr. Patel"
+    }
+  ]
+}

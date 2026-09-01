@@ -1,0 +1,25 @@
+# KAVACH AI — SOVEREIGN INDUSTRIAL EQUIPMENT INSPECTION REPORT
+# Ref No: INSP-2026-PSU-8849
+# Date: 2026-08-30 | Location: Refinery Unit 4 - Distillation Column
+
+--- EXECUTIVE SUMMARY ---
+Statutory NDT (Non-Destructive Testing) ultrasonic thickness measurement and visual inspection performed on Pressure Vessel V-102 and Hydrocarbon Feed Line 3.
+
+--- INSPECTION FINDINGS ---
+1. Component: Weld Joint B-12 (Main Vessel Shell - Bay 4)
+   - Status: DEFECT DETECTED
+   - Finding: Surface cracking observed near heat-affected zone of weld joint B-12 during Magnetic Particle Inspection (MPI).
+   - Severity: HIGH
+   - Recommended Action: Perform 100% Radiographic Testing (RT) prior to statutory clearance.
+
+2. Component: Hydrocarbon Feed Line 3 (PIPE-SEC-03)
+   - Status: CRITICAL WALL THINNING
+   - Finding: Wall thickness measured 2.8mm against design minimum requirement of 3.2mm (corrosion allowance exceeded).
+   - Severity: CRITICAL
+   - Recommended Action: Immediate emergency derating or containment sleeve installation mandated as per OISD-STD-118 Section 4.2.1.
+
+--- STATUTORY RECOMMENDATIONS ---
+- Mandate Form-B statutory approval note signed by Chief Inspection Engineer prior to resuming hydrocarbon service.
+- Re-verify wall thickness with UT probe after sleeve placement.
+
+Inspector: Chief Inspector A. Sharma (Cert # NDT-LEVEL-III-492)
