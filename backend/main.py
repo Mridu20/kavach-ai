@@ -1,12 +1,15 @@
 """
 KAVACH AI Backend Entrypoint (FastAPI).
 Sovereign Industrial AI Workbench.
+
+CHANGE from your original: added system_router (real network monitoring).
 """
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from backend.api.agent_router import router as agent_router
 from backend.api.rag_router import router as rag_router
+from backend.api.system_router import router as system_router
 
 app = FastAPI(
     title="KAVACH AI - Sovereign Industrial AI Workbench API",
@@ -25,6 +28,7 @@ app.add_middleware(
 
 app.include_router(agent_router)
 app.include_router(rag_router)
+app.include_router(system_router)
 
 
 @app.get("/")
