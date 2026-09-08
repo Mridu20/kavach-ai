@@ -20,7 +20,7 @@ interface Props {
   state: AgentState | null;
   isRunning: boolean;
   error: string | null;
-  onRunTask: (query: string, files: string[]) => void;
+  onRunTask: (query: string, files: File[]) => void;
   onSubmitApproval: (
     decision: HumanDecision,
     reviewer: string,
@@ -481,21 +481,8 @@ const [files, setFiles] = useState<File[]>([]);
 const [query, setQuery] = useState("");
 const [isUploading, setIsUploading] = useState(false);
 
-const handleSubmit = async () => {
-  setIsUploading(true);
-  try {
-    // Files must exist on the backend's filesystem before /api/agent/run —
-    // the orchestrator's _build_tool_params reads input_files as real
-    // server-side paths, not browser filenames. Upload each file first.
-    const uploaded = await Promise.all(files.map((f) => uploadFile(f)));
-    const savedPaths = uploaded.map((u) => u.saved_path);
-    onRunTask(query, savedPaths);
-  } catch (err) {
-    console.error("File upload failed before agent run:", err);
-    onRunTask(query, []);
-  } finally {
-    setIsUploading(false);
-  }
+const handleSubmit = () => {
+  onRunTask(query, files);
 };
 
   const handleReset = () => {

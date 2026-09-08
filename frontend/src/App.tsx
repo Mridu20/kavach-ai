@@ -4,8 +4,7 @@ import { ScanWorkbench } from "./components/ScanWorkbench";
 import { NetworkMonitor } from "./components/NetworkMonitor";
 import { ModelMatrix } from "./components/ModelMatrix";
 import type { AgentState, HumanDecision } from "./types/agent";
-import { runAgentWorkflow, submitHumanApproval } from "./services/api";
-
+import { runAgentWorkflow, submitHumanApproval, uploadFile } from "./services/api";
 export function App() {
   const [activeTab, setActiveTab] = useState<NavTab>("scanner");
   const [agentState, setAgentState] = useState<AgentState | null>(null);
@@ -18,23 +17,25 @@ export function App() {
     setTimeout(() => setToast(null), 4000);
   };
 
-  const handleRunTask = async (query: string, files: string[]) => {
-    setIsRunning(true);
-    setError(null);
-    showToast("Analyzing document...");
-    try {
-      const state = await runAgentWorkflow(query, files);
-      setAgentState(state);
-      showToast("Analysis Complete.");
-    } catch (err) {
-      const msg =
-        err instanceof Error ? err.message : "Backend unreachable. Ensure the server is running on port 8000.";
-      setError(msg);
-      showToast("Analysis failed. Check backend connection.");
-    } finally {
-      setIsRunning(false);
-    }
-  };
+const handleRunTask = async (query: string, files: File[]) => {
+  setIsRunning(true);
+  setError(null);
+  showToast("Analyzing document...");
+  try {
+    const uploaded = await Promise.all(files.map((f) => uploadFile(f)));
+    const savedPaths = uploaded.map((u) => u.saved_path);
+    const state = await runAgentWorkflow(query, savedPaths);
+    setAgentState(state);
+    showToast("Analysis Complete.");
+  } catch (err) {
+    const msg =
+      err instanceof Error ? err.message : "Backend unreachable. Ensure the server is running on port 8000.";
+    setError(msg);
+    showToast("Analysis failed. Check backend connection.");
+  } finally {
+    setIsRunning(false);
+  }
+};
 
   const handleSubmitApproval = async (
     decision: HumanDecision,
