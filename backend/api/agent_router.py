@@ -7,12 +7,14 @@ CHANGES from your original:
 Everything else is unchanged from your existing file.
 """
 
+import json
+import asyncio
 import os
 import uuid
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, status, UploadFile, File
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from backend.agent.state import AgentState, AgentTrace, HumanDecision
@@ -103,6 +105,29 @@ def run_agent_workflow(req: RunAgentRequest):
     state = orchestrator.run_all_steps(state)
     SelfVerifier.verify(state)
     return state
+
+
+@router.post("/run-stream")
+async def run_agent_workflow_stream(req: RunAgentRequest):
+    """Streams real-time step-by-step agent execution updates via Server-Sent Events (SSE)."""
+    async def event_generator():
+        try:
+            state = orchestrator.create_task(query=req.user_query, input_files=req.input_files, task_id=req.task_id)
+            yield f"data: {json.dumps({'type': 'INIT', 'state': state.model_dump()})}\n\n"
+            await asyncio.sleep(0.15)
+
+            while state.current_step_index < len(state.plan) and state.status in ["PLANNED", "EXECUTING"]:
+                state = orchestrator.execute_next_step(state)
+                yield f"data: {json.dumps({'type': 'STEP_UPDATE', 'state': state.model_dump()})}\n\n"
+                await asyncio.sleep(0.2)
+
+            SelfVerifier.verify(state)
+            yield f"data: {json.dumps({'type': 'COMPLETE', 'state': state.model_dump()})}\n\n"
+        except Exception as e:
+            err_data = {"type": "ERROR", "error": str(e)}
+            yield f"data: {json.dumps(err_data)}\n\n"
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
 @router.get("/state/{task_id}", response_model=AgentState)

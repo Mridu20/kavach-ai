@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import type { AgentState, HumanDecision } from "../types/agent";
 import { DeliverablesPreview } from "./DeliverablesPreview";
+import { AgentThinkingSteps } from "./AgentThinkingSteps";
 import { sampleIndustrialScenarios } from "../services/api";
 
 interface Props {
@@ -259,81 +260,61 @@ const IntakeZone: React.FC<{
 
 // ── Phase 2: Scanning in Progress ────────────────────────────────────────────
 
-const ScanningPhase: React.FC<{ files: File[]; query: string }> = ({ files, query }) => {
+// ── Phase 2: Scanning in Progress ────────────────────────────────────────────
+
+const ScanningPhase: React.FC<{ files: File[]; query: string; state: AgentState | null; isRunning: boolean }> = ({
+  files,
+  query,
+  state,
+  isRunning,
+}) => {
   return (
-    <div className="panel" style={{ padding: "3rem 2rem", textAlign: "center" }}>
-      <div
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          gap: "1.25rem",
-          maxWidth: "600px",
-          margin: "0 auto",
-        }}
-      >
-        <div
-          style={{
-            width: "56px",
-            height: "56px",
-            borderRadius: "50%",
-            background: "#f0f9ff",
-            border: "1px solid #bae6fd",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          <Loader2 size={28} color="var(--brand-blue)" style={{ animation: "spin 1.2s linear infinite" }} />
-        </div>
+    <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem", width: "100%" }}>
+      {/* Live ChatGPT & Antigravity Style Agent Thinking Steps */}
+      <AgentThinkingSteps state={state} isRunning={isRunning} activeQuery={query} defaultExpanded={true} />
 
-        <div>
-          <h3 style={{ fontSize: "1.1rem", fontWeight: 700, color: "var(--brand-navy)", marginBottom: "0.3rem" }}>
-            Executing Sovereign Agent Workflow...
-          </h3>
-          <p style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>
-            Parsing documents with OCR/VLM, checking statutory RAG grounding, and compiling deliverables.
-          </p>
+      <div className="panel" style={{ padding: "1.25rem 1.5rem" }}>
+        <div style={{ fontSize: "0.85rem", fontWeight: 600, color: "var(--brand-navy)", marginBottom: "0.5rem" }}>
+          Ingestion Files & Query Context
         </div>
-
         <div
           style={{
             background: "var(--bg-raised)",
             border: "1px solid var(--border-dim)",
             borderRadius: "6px",
             padding: "0.75rem 1rem",
-            width: "100%",
-            textAlign: "left",
-            fontSize: "0.8rem",
+            fontSize: "0.825rem",
+            color: "var(--text-primary)",
+            marginBottom: "0.75rem",
           }}
         >
-          <div style={{ fontWeight: 600, color: "var(--text-dim)", marginBottom: "0.25rem" }}>
-            Active Task Query:
-          </div>
-          <div style={{ color: "var(--text-primary)", fontStyle: "italic" }}>"{query}"</div>
+          <span style={{ fontWeight: 600, color: "var(--text-dim)" }}>Instruction: </span>
+          <span style={{ fontStyle: "italic" }}>"{query}"</span>
         </div>
 
-        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", justifyContent: "center" }}>
-          {files.map((f, i) => (
-            <div
-              key={i}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "0.4rem",
-                background: "#ffffff",
-                border: "1px solid var(--border-base)",
-                borderRadius: "4px",
-                padding: "0.35rem 0.65rem",
-                fontSize: "0.75rem",
-                color: "var(--text-primary)",
-              }}
-            >
-              <FileText size={14} color="var(--brand-blue)" />
-              <span>{f.name}</span>
-            </div>
-          ))}
-        </div>
+        {files.length > 0 && (
+          <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+            {files.map((f, i) => (
+              <div
+                key={i}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "0.4rem",
+                  background: "#ffffff",
+                  border: "1px solid var(--border-base)",
+                  borderRadius: "4px",
+                  padding: "0.35rem 0.65rem",
+                  fontSize: "0.75rem",
+                  color: "var(--text-primary)",
+                }}
+              >
+                <FileText size={14} color="var(--brand-blue)" />
+                <span>{f.name}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -419,6 +400,9 @@ const ResultsPhase: React.FC<{
           Start New Inspection
         </button>
       </div>
+
+      {/* ── Collapsible Agent Thinking & Execution Steps Trace ── */}
+      <AgentThinkingSteps state={state} isRunning={false} defaultExpanded={false} />
 
       {/* ── Executive Metric Stat Strip ── */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "1rem" }}>
@@ -613,7 +597,9 @@ export const ScanWorkbench: React.FC<Props> = ({
         />
       )}
 
-      {phase === "scanning" && <ScanningPhase files={files} query={query} />}
+      {phase === "scanning" && (
+        <ScanningPhase files={files} query={query} state={state} isRunning={isRunning} />
+      )}
 
       {phase === "results" && state && (
         <ResultsPhase state={state} onReset={handleReset} onSubmitApproval={onSubmitApproval} />

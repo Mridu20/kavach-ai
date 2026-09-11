@@ -147,6 +147,70 @@ export async function runAgentWorkflow(
   return response.json();
 }
 
+/**
+ * Runs the agent workflow with real-time SSE step streaming.
+ * Calls `onProgress(state)` as each step is performed by the agent backend.
+ */
+export async function runAgentWorkflowStream(
+  query: string,
+  inputFiles: string[] = [],
+  onProgress?: (state: AgentState) => void
+): Promise<AgentState> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/run-stream`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ user_query: query, input_files: inputFiles }),
+    });
+
+    if (!response.ok || !response.body) {
+      return runAgentWorkflow(query, inputFiles);
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let finalState: AgentState | null = null;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      const lines = buffer.split("\n\n");
+      buffer = lines.pop() || "";
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed.startsWith("data: ")) {
+          try {
+            const payload = JSON.parse(trimmed.slice(6));
+            if (payload.type === "ERROR") {
+              throw new Error(payload.error || "Agent execution failed");
+            }
+            if (payload.state) {
+              finalState = payload.state;
+              if (onProgress) {
+                onProgress(payload.state);
+              }
+            }
+          } catch (err) {
+            if (err instanceof Error && err.message.includes("Agent execution failed")) {
+              throw err;
+            }
+          }
+        }
+      }
+    }
+
+    if (finalState) return finalState;
+    return runAgentWorkflow(query, inputFiles);
+  } catch (err) {
+    // Fallback if SSE streaming endpoint fails
+    return runAgentWorkflow(query, inputFiles);
+  }
+}
+
 export async function submitHumanApproval(
   taskId: string,
   decision: HumanDecision,

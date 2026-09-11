@@ -155,6 +155,24 @@ class TestAgentFramework(unittest.TestCase):
         self.assertGreater(len(full_text), 100, "DOCX should have substantial content")
         self.assertIn("Approval Note", full_text, "DOCX should have the title")
 
+    def test_streaming_agent_endpoint(self):
+        """Test FastAPI SSE streaming route returns real-time data events."""
+        from fastapi.testclient import TestClient
+        from backend.main import app
+
+        client = TestClient(app)
+        response = client.post(
+            "/api/agent/run-stream",
+            json={"user_query": "Inspect turbine report", "input_files": ["turbine.pdf"]},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("text/event-stream", response.headers.get("content-type", ""))
+
+        content = response.text
+        self.assertIn("data: ", content)
+        self.assertIn('"type": "INIT"', content)
+        self.assertIn('"type": "COMPLETE"', content)
+
 
 if __name__ == "__main__":
     unittest.main()

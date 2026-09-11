@@ -6,7 +6,7 @@ import { ModelMatrix } from "./components/ModelMatrix";
 import { AuthView, sampleUsers } from "./components/AuthView";
 import type { AgentState, HumanDecision } from "./types/agent";
 import type { UserProfile } from "./types/auth";
-import { runAgentWorkflow, submitHumanApproval, uploadFile } from "./services/api";
+import { runAgentWorkflow, runAgentWorkflowStream, submitHumanApproval, uploadFile } from "./services/api";
 
 export function App() {
   const [activeTab, setActiveTab] = useState<NavTab>("scanner");
@@ -53,11 +53,14 @@ export function App() {
   const handleRunTask = async (query: string, files: File[]) => {
     setIsRunning(true);
     setError(null);
+    setAgentState(null);
     showToast("Analyzing document with sovereign agent...");
     try {
       const uploaded = await Promise.all(files.map((f) => uploadFile(f)));
       const savedPaths = uploaded.map((u) => u.saved_path);
-      const state = await runAgentWorkflow(query, savedPaths);
+      const state = await runAgentWorkflowStream(query, savedPaths, (partialState) => {
+        setAgentState(partialState);
+      });
       setAgentState(state);
       showToast("Analysis Complete.");
     } catch (err) {
