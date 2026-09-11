@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
-import { ShieldCheck, Server, Search, Radio, Cpu, Activity } from "lucide-react";
+import { ShieldCheck, Server, Search, Radio, Cpu, Activity, User, LogOut } from "lucide-react";
 import { fetchAvailableTools } from "../services/api";
+import type { UserProfile } from "../types/auth";
 
 export type NavTab = "scanner" | "network" | "models";
 
@@ -8,9 +9,19 @@ interface NavbarProps {
   activeTab: NavTab;
   setActiveTab: (tab: NavTab) => void;
   isRunning: boolean;
+  user: UserProfile | null;
+  onOpenAuth: () => void;
+  onLogout: () => void;
 }
 
-export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab, isRunning }) => {
+export const Navbar: React.FC<NavbarProps> = ({
+  activeTab,
+  setActiveTab,
+  isRunning,
+  user,
+  onOpenAuth,
+  onLogout,
+}) => {
   const [toolsLoaded, setToolsLoaded] = useState(false);
 
   useEffect(() => {
@@ -138,8 +149,8 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab, isRunni
           })}
         </nav>
 
-        {/* ── Status Pill ── */}
-        <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", flexShrink: 0 }}>
+        {/* ── User Profile & System Status Bar ── */}
+        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", flexShrink: 0 }}>
           <div
             style={{
               display: "flex",
@@ -155,11 +166,64 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab, isRunni
             }}
           >
             <Server size={14} />
-            <span>{toolsLoaded ? "Sovereign Engine Active" : "Backend Offline"}</span>
+            <span>{toolsLoaded ? "Engine Active" : "Offline"}</span>
           </div>
+
+          {user ? (
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "0.6rem",
+                padding: "0.25rem 0.5rem 0.25rem 0.75rem",
+                background: "var(--bg-raised)",
+                border: "1px solid var(--border-base)",
+                borderRadius: "6px",
+              }}
+            >
+              <div style={{ textAlign: "right" }}>
+                <div style={{ fontSize: "0.8rem", fontWeight: 700, color: "var(--brand-navy)", lineHeight: 1.2 }}>
+                  {user.fullName}
+                </div>
+                <div style={{ fontSize: "0.7rem", color: "var(--brand-blue)", fontFamily: "var(--font-mono)", fontWeight: 600 }}>
+                  {user.employeeId}
+                </div>
+              </div>
+
+              <button
+                onClick={onLogout}
+                title="Sign Out"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  width: "28px",
+                  height: "28px",
+                  borderRadius: "4px",
+                  background: "#ffffff",
+                  border: "1px solid var(--border-dim)",
+                  color: "var(--text-muted)",
+                  cursor: "pointer",
+                  transition: "all 0.15s ease",
+                }}
+              >
+                <LogOut size={14} />
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={onOpenAuth}
+              className="btn btn--primary"
+              style={{ padding: "0.45rem 1rem", fontSize: "0.825rem" }}
+            >
+              <User size={14} />
+              Sign In / Register
+            </button>
+          )}
         </div>
       </div>
     </header>
   );
 };
+
 
