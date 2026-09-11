@@ -3,7 +3,7 @@ import { ShieldCheck, Wifi, WifiOff, Activity, User, LogOut } from "lucide-react
 import { fetchAvailableTools } from "../services/api";
 import type { UserProfile } from "../types/auth";
 
-export type NavTab = "scanner" | "network" | "models";
+export type NavTab = "scanner" | "network";
 
 interface NavbarProps {
   activeTab: NavTab;
@@ -31,8 +31,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   }, []);
 
   const tabs = [
-    { id: "scanner" as NavTab, label: "Analysis Workbench" },
-    { id: "models" as NavTab, label: "Model Routing Matrix" },
+    { id: "scanner" as NavTab, label: "Sovereign Assistant" },
     { id: "network" as NavTab, label: "Air-Gap Network Audit" },
   ];
 

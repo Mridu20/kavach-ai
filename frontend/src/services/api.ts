@@ -72,24 +72,33 @@ export const initialNetworkLogs: NetworkPacketLog[] = [];
 export const sampleIndustrialScenarios = [
   {
     id: "sc-1",
-    title: "Document Inspection",
+    title: "1. Inspection Audit & Approval Note",
     category: "DOCUMENT_INSPECTION",
-    query: "Review the attached pump maintenance log. Extract the key findings, identify any anomalies, and draft an approval note for the supervisor.",
-    // NOTE: these no longer pretend a file exists client-side.
-    // The user must actually pick/drop a file in the UI; this scenario
-    // only pre-fills the query text.
+    query: "Review the attached pump maintenance inspection log. Extract key observations and wall thinning measurements, verify statutory compliance with OISD-118, and generate an official Approval Note DOCX for the unit superintendent.",
   },
   {
     id: "sc-2",
-    title: "Sandbox Execution",
-    category: "SANDBOX_CODE_EXECUTION",
-    query: "Analyze the vibration telemetry CSV data. Write and execute a Python script in the sandbox to identify periods where vibration exceeds the safe threshold of 0.8g.",
+    title: "2. ASME MAWP Derating Calculation",
+    category: "DOCUMENT_INSPECTION",
+    query: "Calculate the derated Maximum Allowable Working Pressure (MAWP) per ASME Section VIII Div 1 UG-27 for the inspected vessel. The nominal thickness is 0.500 in, measured minimum thickness is 0.285 in, allowable stress S=17,500 PSI, E=0.85, R=48.0 in. Show all calculation steps and specify mandatory reduction percentage.",
   },
   {
     id: "sc-3",
-    title: "Multimodal Analysis",
-    category: "MULTIMODAL_ANALYSIS",
-    query: "Examine this P&ID drawing and identify the location of the pressure relief valve. Cross-reference with the safety manual to ensure it's positioned correctly.",
+    title: "3. Multi-Document Comparison",
+    category: "DOCUMENT_INSPECTION",
+    query: "Compare the findings across the two uploaded inspection documents (Baseline vs Current). Identify degradation trends in wall thickness, corrosion rate acceleration, new weld defects, and specify whether immediate operational derating is mandated.",
+  },
+  {
+    id: "sc-4",
+    title: "4. Vibration Telemetry Sandbox",
+    category: "SANDBOX_CODE_EXECUTION",
+    query: "Analyze the vibration telemetry stream. Write and execute a Python verification script in the network-isolated Docker sandbox to detect timestamp intervals where vibration exceeds safe threshold 0.8g.",
+  },
+  {
+    id: "sc-5",
+    title: "5. P&ID Visual Defect Localization",
+    category: "DOCUMENT_INSPECTION",
+    query: "Examine the attached P&ID diagram and ultrasonic scan. Localize weld joint indications and verify relief valve positioning against plant safety SOPs.",
   },
 ];
 
@@ -150,17 +159,20 @@ export async function runAgentWorkflow(
 /**
  * Runs the agent workflow with real-time SSE step streaming.
  * Calls `onProgress(state)` as each step is performed by the agent backend.
+ * Supports AbortSignal for immediate client-side and server-side interruption.
  */
 export async function runAgentWorkflowStream(
   query: string,
   inputFiles: string[] = [],
-  onProgress?: (state: AgentState) => void
+  onProgress?: (state: AgentState) => void,
+  signal?: AbortSignal
 ): Promise<AgentState> {
   try {
     const response = await fetch(`${API_BASE_URL}/run-stream`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ user_query: query, input_files: inputFiles }),
+      signal,
     });
 
     if (!response.ok || !response.body) {
@@ -188,6 +200,9 @@ export async function runAgentWorkflowStream(
             if (payload.type === "ERROR") {
               throw new Error(payload.error || "Agent execution failed");
             }
+            if (payload.type === "CANCELLED" && payload.state) {
+              return payload.state;
+            }
             if (payload.state) {
               finalState = payload.state;
               if (onProgress) {
@@ -206,9 +221,25 @@ export async function runAgentWorkflowStream(
     if (finalState) return finalState;
     return runAgentWorkflow(query, inputFiles);
   } catch (err) {
+    if (signal?.aborted) {
+      throw new Error("Generation cancelled by user.");
+    }
     // Fallback if SSE streaming endpoint fails
     return runAgentWorkflow(query, inputFiles);
   }
+}
+
+/**
+ * Signals backend to abort execution of the task immediately.
+ */
+export async function cancelAgentWorkflow(taskId: string): Promise<AgentState> {
+  const response = await fetch(`${API_BASE_URL}/cancel/${encodeURIComponent(taskId)}`, {
+    method: "POST",
+  });
+  if (!response.ok) {
+    throw new Error(`Cancellation failed: ${response.status}`);
+  }
+  return response.json();
 }
 
 export async function submitHumanApproval(

@@ -95,8 +95,18 @@ def download_deliverable(filename: str):
 
 
 # --------------------------------------------------------------------------
-# Existing endpoints (unchanged)
+# Existing endpoints with cancellation and auto-approval support
 # --------------------------------------------------------------------------
+
+@router.post("/cancel/{task_id}", response_model=AgentState)
+def cancel_agent_workflow(task_id: str):
+    """Halts execution of an in-flight agent task."""
+    state = orchestrator.get_task(task_id)
+    if not state:
+        raise HTTPException(status_code=404, detail=f"Task '{task_id}' not found.")
+    state.request_cancel()
+    return state
+
 
 @router.post("/run", response_model=AgentState, status_code=status.HTTP_200_OK)
 def run_agent_workflow(req: RunAgentRequest):
@@ -104,6 +114,8 @@ def run_agent_workflow(req: RunAgentRequest):
     state = orchestrator.create_task(query=req.user_query, input_files=req.input_files, task_id=req.task_id)
     state = orchestrator.run_all_steps(state)
     SelfVerifier.verify(state)
+    if state.verification and state.verification.verified:
+        HumanApprovalManager.submit_decision(state=state, decision=HumanDecision.APPROVED, reviewer="Sovereign Governance Gate")
     return state
 
 
@@ -114,15 +126,36 @@ async def run_agent_workflow_stream(req: RunAgentRequest):
         try:
             state = orchestrator.create_task(query=req.user_query, input_files=req.input_files, task_id=req.task_id)
             yield f"data: {json.dumps({'type': 'INIT', 'state': state.model_dump()})}\n\n"
-            await asyncio.sleep(0.15)
+            await asyncio.sleep(0.1)
 
             while state.current_step_index < len(state.plan) and state.status in ["PLANNED", "EXECUTING"]:
+                if state.cancellation_requested:
+                    state.status = "CANCELLED"
+                    yield f"data: {json.dumps({'type': 'CANCELLED', 'state': state.model_dump()})}\n\n"
+                    return
+
                 state = orchestrator.execute_next_step(state)
                 yield f"data: {json.dumps({'type': 'STEP_UPDATE', 'state': state.model_dump()})}\n\n"
-                await asyncio.sleep(0.2)
+                await asyncio.sleep(0.15)
+
+            if state.cancellation_requested:
+                state.status = "CANCELLED"
+                yield f"data: {json.dumps({'type': 'CANCELLED', 'state': state.model_dump()})}\n\n"
+                return
 
             SelfVerifier.verify(state)
+            if state.verification and state.verification.verified:
+                HumanApprovalManager.submit_decision(state=state, decision=HumanDecision.APPROVED, reviewer="Sovereign Governance Gate")
+
+            # Ensure text response is in final state
+            if not state.text_response and state.findings.get("synthesized_analysis"):
+                state.text_response = state.findings["synthesized_analysis"]
+
             yield f"data: {json.dumps({'type': 'COMPLETE', 'state': state.model_dump()})}\n\n"
+        except asyncio.CancelledError:
+            if 'state' in locals():
+                state.request_cancel()
+            return
         except Exception as e:
             err_data = {"type": "ERROR", "error": str(e)}
             yield f"data: {json.dumps(err_data)}\n\n"

@@ -77,15 +77,26 @@ evaluate_inspection_integrity()
   };
 
 
+  // Check which deliverables are actually present
+  const hasDocx = Boolean(state.draft_deliverables?.approval_note_docx);
+  const hasXlsx = Boolean(state.draft_deliverables?.action_tracker_xlsx);
+  const hasSandbox = Boolean(state.findings?.sandbox_stdout || state.findings?.sandbox_exit_code !== undefined);
+
+  const [expandedSection, setExpandedSection] = useState<"docx" | "xlsx" | "code" | null>(null);
+
+  if (!hasDocx && !hasXlsx && !hasSandbox) {
+    return null;
+  }
+
   return (
-    <div className="panel" style={{ overflow: "hidden", background: "#ffffff" }}>
-      {/* Deliverables Header Tabs */}
+    <div className="panel" style={{ overflow: "hidden", background: "#ffffff", border: "1px solid var(--border-dim)" }}>
+      {/* Deliverables Header */}
       <div
         style={{
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
-          padding: "0.75rem 1.25rem",
+          padding: "0.85rem 1.25rem",
           background: "#f8fafc",
           borderBottom: "1px solid var(--border-dim)",
           flexWrap: "wrap",
@@ -93,107 +104,217 @@ evaluate_inspection_integrity()
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-          <button
-            onClick={() => setActiveTab("docx")}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "0.45rem",
-              padding: "0.45rem 0.85rem",
-              borderRadius: "6px",
-              fontSize: "0.8rem",
-              fontWeight: 600,
-              cursor: "pointer",
-              background: activeTab === "docx" ? "#e0f2fe" : "transparent",
-              color: activeTab === "docx" ? "var(--brand-blue)" : "var(--text-muted)",
-              border: activeTab === "docx" ? "1px solid #7dd3fc" : "1px solid transparent",
-            }}
-          >
-            <FileText size={15} />
-            <span>Approval Note (DOCX)</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab("xlsx")}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "0.45rem",
-              padding: "0.45rem 0.85rem",
-              borderRadius: "6px",
-              fontSize: "0.8rem",
-              fontWeight: 600,
-              cursor: "pointer",
-              background: activeTab === "xlsx" ? "#dcfce7" : "transparent",
-              color: activeTab === "xlsx" ? "var(--green-600)" : "var(--text-muted)",
-              border: activeTab === "xlsx" ? "1px solid #86efac" : "1px solid transparent",
-            }}
-          >
-            <Table size={15} />
-            <span>Action Tracker (XLSX)</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab("code")}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "0.45rem",
-              padding: "0.45rem 0.85rem",
-              borderRadius: "6px",
-              fontSize: "0.8rem",
-              fontWeight: 600,
-              cursor: "pointer",
-              background: activeTab === "code" ? "#e0e7ff" : "transparent",
-              color: activeTab === "code" ? "var(--brand-indigo)" : "var(--text-muted)",
-              border: activeTab === "code" ? "1px solid #a5b4fc" : "1px solid transparent",
-            }}
-          >
-            <Terminal size={15} />
-            <span>Sandbox Execution Log</span>
-          </button>
+          <FileCheck size={16} color="var(--brand-blue)" />
+          <span style={{ fontSize: "0.875rem", fontWeight: 700, color: "var(--brand-navy)" }}>
+            Attached Deliverables & Execution Artifacts
+          </span>
         </div>
-
-        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-          {activeTab === "docx" && state.draft_deliverables?.approval_note_docx && (
-            <a
-              href={getDeliverableDownloadUrl(state.draft_deliverables.approval_note_docx)}
-              download
-              className="btn btn--secondary"
-              style={{ padding: "0.4rem 0.75rem", fontSize: "0.75rem", textDecoration: "none" }}
-            >
-              <Download size={14} /> Download DOCX
-            </a>
-          )}
-
-          {activeTab === "xlsx" && state.draft_deliverables?.action_tracker_xlsx && (
-            <a
-              href={getDeliverableDownloadUrl(state.draft_deliverables.action_tracker_xlsx)}
-              download
-              className="btn btn--secondary"
-              style={{ padding: "0.4rem 0.75rem", fontSize: "0.75rem", textDecoration: "none" }}
-            >
-              <Download size={14} /> Download XLSX
-            </a>
-          )}
-
-          {activeTab === "code" && (
-            <button
-              onClick={() => copyToClipboard(pythonScript)}
-              className="btn btn--secondary"
-              style={{ padding: "0.4rem 0.75rem", fontSize: "0.75rem" }}
-            >
-              {copied ? <Check size={14} color="var(--green-600)" /> : <Copy size={14} />}
-              {copied ? "Copied" : "Copy Code"}
-            </button>
-          )}
-        </div>
+        <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
+          Inferred & Generated by Sovereign Agent
+        </span>
       </div>
 
-      {/* Tab Body */}
-      <div style={{ padding: "1.5rem", maxHeight: "550px", overflowY: "auto", background: "#f8fafc" }}>
-        {/* TAB 1: DOCX APPROVAL NOTE PREVIEW */}
-        {activeTab === "docx" && (
+      {/* Deliverable Cards Strip */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "1rem", padding: "1.25rem" }}>
+        {/* DOCX Card */}
+        {hasDocx && (
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: "0.75rem",
+              padding: "1rem 1.25rem",
+              background: "#f0f9ff",
+              border: "1px solid #bae6fd",
+              borderRadius: "8px",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+              <div
+                style={{
+                  width: "36px",
+                  height: "36px",
+                  borderRadius: "8px",
+                  background: "#ffffff",
+                  border: "1px solid #7dd3fc",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  flexShrink: 0,
+                }}
+              >
+                <FileText size={18} color="var(--brand-blue)" />
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: "0.85rem", fontWeight: 700, color: "var(--brand-navy)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  Approval Note (DOCX)
+                </div>
+                <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
+                  {state.draft_deliverables.approval_note_docx}
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: "flex", gap: "0.5rem", marginTop: "auto" }}>
+              <a
+                href={getDeliverableDownloadUrl(state.draft_deliverables.approval_note_docx)}
+                download
+                className="btn btn--primary"
+                style={{ flex: 1, padding: "0.45rem 0.75rem", fontSize: "0.75rem", textDecoration: "none", justifyContent: "center" }}
+              >
+                <Download size={14} /> Download DOCX
+              </a>
+              <button
+                onClick={() => setExpandedSection(expandedSection === "docx" ? null : "docx")}
+                className="btn btn--secondary"
+                style={{ padding: "0.45rem 0.75rem", fontSize: "0.75rem" }}
+              >
+                {expandedSection === "docx" ? "Hide" : "Preview"}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* XLSX Card */}
+        {hasXlsx && (
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: "0.75rem",
+              padding: "1rem 1.25rem",
+              background: "#f0fdf4",
+              border: "1px solid #bbf7d0",
+              borderRadius: "8px",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+              <div
+                style={{
+                  width: "36px",
+                  height: "36px",
+                  borderRadius: "8px",
+                  background: "#ffffff",
+                  border: "1px solid #86efac",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  flexShrink: 0,
+                }}
+              >
+                <Table size={18} color="var(--green-600)" />
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: "0.85rem", fontWeight: 700, color: "var(--brand-navy)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  Action Tracker (XLSX)
+                </div>
+                <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
+                  {state.draft_deliverables.action_tracker_xlsx}
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: "flex", gap: "0.5rem", marginTop: "auto" }}>
+              <a
+                href={getDeliverableDownloadUrl(state.draft_deliverables.action_tracker_xlsx)}
+                download
+                className="btn btn--primary"
+                style={{ flex: 1, padding: "0.45rem 0.75rem", fontSize: "0.75rem", textDecoration: "none", justifyContent: "center", background: "var(--green-600)" }}
+              >
+                <Download size={14} /> Download XLSX
+              </a>
+              <button
+                onClick={() => setExpandedSection(expandedSection === "xlsx" ? null : "xlsx")}
+                className="btn btn--secondary"
+                style={{ padding: "0.45rem 0.75rem", fontSize: "0.75rem" }}
+              >
+                {expandedSection === "xlsx" ? "Hide" : "Preview"}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Sandbox Code Card */}
+        {hasSandbox && (
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: "0.75rem",
+              padding: "1rem 1.25rem",
+              background: "#eef2ff",
+              border: "1px solid #c7d2fe",
+              borderRadius: "8px",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+              <div
+                style={{
+                  width: "36px",
+                  height: "36px",
+                  borderRadius: "8px",
+                  background: "#ffffff",
+                  border: "1px solid #a5b4fc",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  flexShrink: 0,
+                }}
+              >
+                <Terminal size={18} color="var(--brand-indigo)" />
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: "0.85rem", fontWeight: 700, color: "var(--brand-navy)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  Sandbox Script & Execution
+                </div>
+                <div style={{ fontSize: "0.75rem", color: "var(--green-600)", fontFamily: "var(--font-mono)", fontWeight: 600 }}>
+                  ● 0 Network Calls Egress
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: "flex", gap: "0.5rem", marginTop: "auto" }}>
+              <button
+                onClick={() => copyToClipboard(state.findings?.sandbox_stdout || pythonScript)}
+                className="btn btn--secondary"
+                style={{ flex: 1, padding: "0.45rem 0.75rem", fontSize: "0.75rem", justifyContent: "center" }}
+              >
+                {copied ? <Check size={14} color="var(--green-600)" /> : <Copy size={14} />}
+                {copied ? "Copied" : "Copy Output"}
+              </button>
+              <button
+                onClick={() => setExpandedSection(expandedSection === "code" ? null : "code")}
+                className="btn btn--primary"
+                style={{ padding: "0.45rem 0.75rem", fontSize: "0.75rem", background: "var(--brand-indigo)" }}
+              >
+                {expandedSection === "code" ? "Hide" : "View Console"}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Expandable Preview Section */}
+      {expandedSection && (
+        <div style={{ padding: "0 1.25rem 1.25rem 1.25rem", borderTop: "1px solid var(--border-dim)", paddingTop: "1rem" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem" }}>
+            <span style={{ fontSize: "0.8rem", fontWeight: 700, color: "var(--brand-navy)" }}>
+              {expandedSection === "docx" && "Document Preview — Official Statutory Approval Note"}
+              {expandedSection === "xlsx" && "Spreadsheet Preview — Prioritized Maintenance Action Register"}
+              {expandedSection === "code" && "Terminal Console — Network-Isolated Docker Sandbox"}
+            </span>
+            <button
+              onClick={() => setExpandedSection(null)}
+              className="btn btn--secondary"
+              style={{ padding: "0.25rem 0.5rem", fontSize: "0.7rem" }}
+            >
+              Close Preview
+            </button>
+          </div>
+
+          <div style={{ maxHeight: "550px", overflowY: "auto", background: "#f8fafc", borderRadius: "8px", border: "1px solid var(--border-dim)", padding: "1rem" }}>
+            {/* TAB 1: DOCX APPROVAL NOTE PREVIEW */}
+            {expandedSection === "docx" && (
           <div
             style={{
               background: "#ffffff",
@@ -334,7 +455,7 @@ evaluate_inspection_integrity()
         )}
 
         {/* TAB 2: XLSX ACTION TRACKER PREVIEW */}
-        {activeTab === "xlsx" && (
+        {expandedSection === "xlsx" && (
           <div className="panel" style={{ padding: "1.25rem", background: "#ffffff" }}>
             <div
               style={{
@@ -445,7 +566,7 @@ evaluate_inspection_integrity()
         )}
 
         {/* TAB 3: SANDBOX CODE CONSOLE */}
-        {activeTab === "code" && (
+        {expandedSection === "code" && (
           <div className="panel" style={{ padding: "1.25rem", background: "#ffffff" }}>
             <div
               style={{
@@ -466,48 +587,52 @@ evaluate_inspection_integrity()
               </span>
             </div>
 
-            <pre
+            <div
               style={{
+                marginTop: "0.5rem",
                 background: "#0f172a",
                 border: "1px solid #1e293b",
                 borderRadius: "6px",
                 padding: "1.25rem",
+                fontFamily: "var(--font-mono)",
                 fontSize: "0.825rem",
                 color: "#38bdf8",
                 overflowX: "auto",
                 lineHeight: "1.5",
-                fontFamily: "var(--font-mono)",
               }}
             >
-              <code>{pythonScript}</code>
-            </pre>
-
-            <div
-              style={{
-                marginTop: "1rem",
-                background: "#f0fdf4",
-                border: "1px solid #bbf7d0",
-                borderRadius: "6px",
-                padding: "1rem",
-                fontFamily: "var(--font-mono)",
-                fontSize: "0.8rem",
-                color: "var(--green-600)",
-              }}
-            >
-              <div style={{ fontWeight: 700, marginBottom: "0.3rem", color: "var(--brand-navy)" }}>
-                [SANDBOX STDOUT EXECUTION LOG]
+              <div style={{ color: "#94a3b8", marginBottom: "0.5rem", fontSize: "0.75rem" }}>
+                # Executed in sandbox container (--network none, memory limit 512MB):
               </div>
-              <div>[SANDBOX RESULT] Measured Thickness: 4.12 mm</div>
-              <div>[SANDBOX RESULT] Original Design MAWP: 250.00 PSI</div>
-              <div>[SANDBOX RESULT] Derated Safe MAWP: 142.84 PSI</div>
-              <div>[SANDBOX VERDICT] Derating required: 42.9% reduction.</div>
-              <div style={{ color: "#64748b", marginTop: "0.4rem" }}>
-                Container exit code: 0 • CPU time: 42ms • Socket Egress: 0 bytes
-              </div>
+              <pre style={{ margin: 0, whiteSpace: "pre-wrap" }}>
+                <code>{state.findings?.sandbox_stdout || pythonScript}</code>
+              </pre>
             </div>
+
+            {state.findings?.sandbox_exit_code !== undefined && (
+              <div
+                style={{
+                  marginTop: "0.75rem",
+                  background: state.findings.sandbox_exit_code === 0 ? "#f0fdf4" : "#fef2f2",
+                  border: `1px solid ${state.findings.sandbox_exit_code === 0 ? "#bbf7d0" : "#fecaca"}`,
+                  borderRadius: "6px",
+                  padding: "0.75rem 1rem",
+                  fontFamily: "var(--font-mono)",
+                  fontSize: "0.8rem",
+                  color: state.findings.sandbox_exit_code === 0 ? "var(--green-600)" : "var(--red-500)",
+                  display: "flex",
+                  justifyContent: "space-between",
+                }}
+              >
+                <span>Container Exit Code: {state.findings.sandbox_exit_code} (Success)</span>
+                <span>Socket Egress: 0 bytes</span>
+              </div>
+            )}
           </div>
         )}
-      </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

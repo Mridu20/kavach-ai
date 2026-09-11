@@ -114,13 +114,25 @@ class AgentState(BaseModel):
     retrieved_evidence: List[EvidenceItem] = Field(default_factory=list)
     findings: Dict[str, Any] = Field(default_factory=dict)
     draft_deliverables: Dict[str, str] = Field(default_factory=dict)  # e.g., {"approval_note": "path/to/docx"}
+    text_response: Optional[str] = None
+    calculation_details: Optional[Dict[str, Any]] = None
+    multi_doc_comparison: Optional[Dict[str, Any]] = None
+    cancellation_requested: bool = False
     verification: Optional[VerificationResult] = None
     approval: HumanApprovalState = Field(default_factory=HumanApprovalState)
     trace: AgentTrace = Field(default_factory=lambda: AgentTrace(task_id=""))
-    status: str = "INITIALIZED"  # INITIALIZED, PLANNING, EXECUTING, VERIFYING, AWAITING_APPROVAL, COMPLETED, REJECTED, FAILED
+    status: str = "INITIALIZED"  # INITIALIZED, PLANNING, EXECUTING, VERIFYING, AWAITING_APPROVAL, COMPLETED, REJECTED, FAILED, CANCELLED
     error: Optional[str] = None
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     updated_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+    def request_cancel(self) -> None:
+        self.cancellation_requested = True
+        self.status = "CANCELLED"
+        self.add_trace_event(
+            event_type="CANCELLED",
+            message="Execution halted by user interruption (Stop command).",
+        )
 
     def add_trace_event(self, event_type: str, message: str, payload: Optional[Dict[str, Any]] = None) -> TraceEvent:
         if payload is None:

@@ -1,12 +1,16 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Navbar, type NavTab } from "./components/Navbar";
 import { ScanWorkbench } from "./components/ScanWorkbench";
 import { NetworkMonitor } from "./components/NetworkMonitor";
-import { ModelMatrix } from "./components/ModelMatrix";
 import { AuthView, sampleUsers } from "./components/AuthView";
 import type { AgentState, HumanDecision } from "./types/agent";
 import type { UserProfile } from "./types/auth";
-import { runAgentWorkflow, runAgentWorkflowStream, submitHumanApproval, uploadFile } from "./services/api";
+import {
+  runAgentWorkflowStream,
+  cancelAgentWorkflow,
+  submitHumanApproval,
+  uploadFile,
+} from "./services/api";
 
 export function App() {
   const [activeTab, setActiveTab] = useState<NavTab>("scanner");
@@ -14,6 +18,7 @@ export function App() {
   const [isRunning, setIsRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   // Authentication State
   const [user, setUser] = useState<UserProfile | null>(() => {
@@ -54,23 +59,54 @@ export function App() {
     setIsRunning(true);
     setError(null);
     setAgentState(null);
-    showToast("Analyzing document with sovereign agent...");
+    showToast("Analyzing query with sovereign on-premise agent...");
+
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     try {
       const uploaded = await Promise.all(files.map((f) => uploadFile(f)));
       const savedPaths = uploaded.map((u) => u.saved_path);
-      const state = await runAgentWorkflowStream(query, savedPaths, (partialState) => {
-        setAgentState(partialState);
-      });
+      const state = await runAgentWorkflowStream(
+        query,
+        savedPaths,
+        (partialState) => {
+          setAgentState(partialState);
+        },
+        controller.signal
+      );
       setAgentState(state);
       showToast("Analysis Complete.");
     } catch (err) {
-      const msg =
-        err instanceof Error ? err.message : "Backend unreachable. Ensure the server is running on port 8000.";
-      setError(msg);
-      showToast("Analysis failed. Check backend connection.");
+      if (controller.signal.aborted) {
+        showToast("Generation stopped.");
+      } else {
+        const msg =
+          err instanceof Error ? err.message : "Backend unreachable. Ensure server is running on port 8000.";
+        setError(msg);
+        showToast("Analysis failed. Check backend connection.");
+      }
     } finally {
       setIsRunning(false);
+      abortControllerRef.current = null;
     }
+  };
+
+  const handleStopTask = async () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    if (agentState?.task_id) {
+      try {
+        const cancelled = await cancelAgentWorkflow(agentState.task_id);
+        setAgentState(cancelled);
+      } catch {
+        // silently handle if task already stopped
+      }
+    }
+    setIsRunning(false);
+    showToast("Generation interrupted and cancelled cleanly.");
   };
 
   const handleSubmitApproval = async (
@@ -122,9 +158,10 @@ export function App() {
             onRunTask={handleRunTask}
             onSubmitApproval={handleSubmitApproval}
             onReset={handleReset}
+            onStopTask={handleStopTask}
+            onNavigateToNetwork={() => setActiveTab("network")}
           />
         )}
-        {activeTab === "models" && <ModelMatrix />}
         {activeTab === "network" && <NetworkMonitor />}
       </main>
 

@@ -173,6 +173,38 @@ class TestAgentFramework(unittest.TestCase):
         self.assertIn('"type": "INIT"', content)
         self.assertIn('"type": "COMPLETE"', content)
 
+    def test_cancellation_and_fields(self):
+        """Test cancellation state handling and calculation/multi-doc detection."""
+        orchestrator = AgentOrchestrator()
+        state = orchestrator.create_task(
+            query="Calculate derated MAWP for pressure vessel with measured thickness 0.285 in",
+            input_files=["baseline.pdf", "current.pdf"],
+        )
+        # Verify initial state
+        self.assertFalse(state.cancellation_requested)
+        # Execute 1 step
+        orchestrator.execute_next_step(state)
+        # Request cancel
+        state.request_cancel()
+        self.assertTrue(state.cancellation_requested)
+        self.assertEqual(state.status, "CANCELLED")
+
+        # Verify execute_next_step returns CANCELLED
+        state2 = orchestrator.execute_next_step(state)
+        self.assertEqual(state2.status, "CANCELLED")
+
+        # Test full run with calculation populates calculation_details and multi_doc_comparison
+        state_calc = orchestrator.create_task(
+            query="Calculate derated MAWP for pressure vessel",
+            input_files=["baseline.pdf", "current.pdf"],
+        )
+        orchestrator.run_all_steps(state_calc)
+        self.assertIsNotNone(state_calc.text_response)
+        self.assertIsNotNone(state_calc.calculation_details)
+        self.assertIn("steps", state_calc.calculation_details)
+        self.assertIsNotNone(state_calc.multi_doc_comparison)
+        self.assertEqual(state_calc.multi_doc_comparison["doc1"], "baseline.pdf")
+
 
 if __name__ == "__main__":
     unittest.main()

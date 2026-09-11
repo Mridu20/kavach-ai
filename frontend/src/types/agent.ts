@@ -100,6 +100,21 @@ export interface AgentState {
   retrieved_evidence: EvidenceItem[];
   findings: Record<string, any>;
   draft_deliverables: Record<string, string>;
+  text_response?: string;
+  calculation_details?: {
+    standard?: string;
+    formula?: string;
+    parameters?: Record<string, string>;
+    steps?: Array<{ step: number; title: string; formula: string; result: string }>;
+    verdict?: string;
+  };
+  multi_doc_comparison?: {
+    doc1: string;
+    doc2: string;
+    metrics: Array<{ parameter: string; baseline: string; current: string; variance: string; severity: string }>;
+    recommendation: string;
+  };
+  cancellation_requested?: boolean;
   verification?: VerificationResult;
   approval: HumanApprovalState;
   trace: AgentTrace;
