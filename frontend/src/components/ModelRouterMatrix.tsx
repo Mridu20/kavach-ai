@@ -17,27 +17,27 @@ export const ModelRouterMatrix: React.FC = () => {
   const routingRules = [
     {
       task: "Engineering Code & Python Sandbox",
-      routedModel: "Qwen-2.5-Coder-32B-Instruct",
+      routedModel: "Qwen2.5-Coder-7B-Instruct (Q4_K_M)",
       rationale: "Optimized for deterministic Python AST generation, math stress formulas & syntax execution without external API dependencies.",
       latencyMs: 140,
     },
     {
+      task: "Document OCR & Scanned Inspection Extraction",
+      routedModel: "Tesseract OCR (CPU Baseline)",
+      rationale: "Fast, zero-VRAM on-premise CPU optical character recognition for scanned reports, tabular inspection sheets & image fallbacks.",
+      latencyMs: 45,
+    },
+    {
       task: "Multimodal P&ID & Defect Scans",
-      routedModel: "LLaVA-v1.6-34B-Vision / Qwen2-VL",
-      rationale: "Equipped with high-resolution patch encoders for technical schematics, weld radiographs & scanned engineering drawings.",
+      routedModel: "Qwen2.5-VL-7B (Q4_K_M)",
+      rationale: "Equipped with high-resolution vision patch encoders for technical schematics, weld radiographs & scanned engineering drawings.",
       latencyMs: 280,
     },
     {
-      task: "Statutory Approval Note Synthesis",
-      routedModel: "Llama-3.3-70B-Instruct-Sovereign",
-      rationale: "Deep executive formatting and PSU bureaucratic language generation with rigid adherence to OISD/ASME guidelines.",
-      latencyMs: 310,
-    },
-    {
-      task: "Complex Failure Mode Verification",
-      routedModel: "DeepSeek-R1-Distill-Llama-70B",
-      rationale: "Long-form Chain-of-Thought (CoT) reasoning for verifying structural failure theories and non-conformance edge cases.",
-      latencyMs: 420,
+      task: "Statutory Approval Note Synthesis & Reasoning",
+      routedModel: "Qwen2.5-7B-Instruct (Q4_K_M)",
+      rationale: "Executive formatting, SOP compliance checks, and PSU bureaucratic synthesis with strict grounding in local RAG standards.",
+      latencyMs: 190,
     },
   ];
 

@@ -53,6 +53,17 @@ export const activeModelsList: ModelInfo[] = [
     tokenThroughput: 24.0,
     description: "Synthesizes approval notes and general reasoning grounded in RAG evidence.",
   },
+  {
+    id: "tesseract-ocr",
+    name: "Tesseract OCR v5 (CPU Engine)",
+    specialization: "Scanned Document OCR & Tabular Inspection Extraction",
+    weightsFormat: "Native C++ / Pytesseract (Local CPU)",
+    vramUsageGb: 0,
+    contextLength: "Multi-Page Stream",
+    status: "ACTIVE",
+    tokenThroughput: 45.0,
+    description: "High-speed local OCR engine for scanned plant inspection reports, ultrasonic NDT tables, and raster image extraction with zero GPU VRAM overhead.",
+  },
 ];
 
 // Placeholder shown only until the first real fetchNetworkStats() resolves.
