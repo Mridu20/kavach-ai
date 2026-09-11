@@ -33,6 +33,12 @@ def get_network_connections() -> Dict[str, Any]:
     total = 0
     local_count = 0
     external_count = 0
+    # Monotonic counter for unique IDs — conn.fd is -1 on Windows,
+    # so pid+fd cannot be used as a unique key.
+    seq = 0
+    # Deduplicate by (remote_ip, remote_port, pid) so the same logical
+    # connection isn't listed multiple times in the table.
+    seen: set = set()
 
     try:
         for conn in psutil.net_connections(kind="inet"):
@@ -47,6 +53,12 @@ def get_network_connections() -> Dict[str, Any]:
             )
             ip_only = raddr.ip if raddr else (laddr.ip if laddr else "0.0.0.0")
 
+            # Skip duplicate rows for the same (destination, pid)
+            dedup_key = (dest_ip, conn.pid)
+            if dedup_key in seen:
+                continue
+            seen.add(dedup_key)
+
             is_external = not _is_local(ip_only) and conn.status == "ESTABLISHED"
 
             total += 1
@@ -55,8 +67,9 @@ def get_network_connections() -> Dict[str, Any]:
             else:
                 local_count += 1
 
+            seq += 1
             connections.append({
-                "id": f"conn-{conn.pid}-{conn.fd}",
+                "id": f"conn-{conn.pid}-{seq}",
                 "pid": conn.pid,
                 "destination": dest_ip,
                 "status_raw": conn.status,
