@@ -279,6 +279,15 @@ class MockDocxGeneratorTool(BaseAgentTool):
         else:
             doc.add_paragraph("No findings were recorded for this task.")
 
+        evidence = kwargs.get("evidence", [])
+        if evidence:
+            doc.add_heading("SOP Evidence & Citations", level=2)
+            for ev in evidence:
+                if hasattr(ev, 'source_doc'):
+                    doc.add_paragraph(f"[{ev.source_doc}, p.{ev.page_num}] {ev.snippet}")
+                elif isinstance(ev, dict):
+                    doc.add_paragraph(f"[{ev.get('source_doc', 'Unknown')}, p.{ev.get('page_num', 'N/A')}] {ev.get('snippet', '')}")
+
         doc.add_heading("Recommendation", level=2)
         doc.add_paragraph("Findings above should be reviewed and actioned per applicable SOPs.")
 
@@ -341,14 +350,27 @@ class MockModelRouterTool(BaseAgentTool):
     description = "Route task to specialized local model (coding, vision, general reasoning)."
     category = "routing"
 
+    def _unload_other_models(self, client: httpx.Client, selected_model: str):
+        for model in set(MODEL_MAP.values()):
+            if model != selected_model:
+                try:
+                    client.post(
+                        f"{OLLAMA_URL}/api/generate",
+                        json={"model": model, "keep_alive": 0},
+                        timeout=5.0
+                    )
+                except Exception:
+                    pass
+
     def run(self, task_type: str = "general", prompt: str = "", **kwargs) -> Dict[str, Any]:
         selected_model = MODEL_MAP.get(task_type, MODEL_MAP["general"])
 
         try:
-            with httpx.Client(timeout=60.0) as client:
+            with httpx.Client(timeout=120.0) as client:
+                self._unload_other_models(client, selected_model)
                 resp = client.post(
                     f"{OLLAMA_URL}/api/generate",
-                    json={"model": selected_model, "prompt": prompt, "stream": False},
+                    json={"model": selected_model, "prompt": prompt, "stream": False, "keep_alive": "5m"},
                 )
                 resp.raise_for_status()
                 data = resp.json()

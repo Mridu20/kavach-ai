@@ -87,7 +87,6 @@ frontend/
       NetworkMonitor.tsx
       ScanWorkbench.tsx
       VerificationBadge.tsx
-      WorkbenchCanvas.tsx
     services/
       api.ts
     types/
@@ -3373,574 +3372,6 @@ export const MultimodalInspector: React.FC = () => {
 };
 </file>
 
-<file path="frontend/src/components/ScanWorkbench.tsx">
-import React, { useState, useRef, useCallback } from "react";
-import {
-  UploadCloud,
-  FileText,
-  X,
-  ScanLine,
-  CheckCircle2,
-  FileSignature,
-  RotateCcw,
-  Loader2,
-  ClipboardList,
-  AlertTriangle,
-  Zap,
-  Cpu,
-} from "lucide-react";
-import type { AgentState, HumanDecision } from "../types/agent";
-import { DeliverablesPreview } from "./DeliverablesPreview";
-import { sampleIndustrialScenarios } from "../services/api";
-
-interface Props {
-  state: AgentState | null;
-  isRunning: boolean;
-  error: string | null;
-  onRunTask: (query: string, files: string[]) => void;
-  onSubmitApproval: (
-    decision: HumanDecision,
-    reviewer: string,
-    comments?: string,
-    modifications?: Record<string, unknown>
-  ) => void;
-  onReset: () => void;
-}
-
-// ── Phase 1: Document Intake ─────────────────────────────────────────────────
-
-const IntakeZone: React.FC<{
-  files: File[];
-  query: string;
-  onFilesChange: (f: File[]) => void;
-  onQueryChange: (q: string) => void;
-  onSubmit: () => void;
-}> = ({ files, query, onFilesChange, onQueryChange, onSubmit }) => {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const [dragging, setDragging] = useState(false);
-
-  const addFiles = (incoming: FileList | null) => {
-    if (!incoming) return;
-    onFilesChange([...files, ...Array.from(incoming)]);
-  };
-
-  const onDrop = useCallback(
-    (e: React.DragEvent) => {
-      e.preventDefault();
-      setDragging(false);
-      addFiles(e.dataTransfer.files);
-    },
-    [files]
-  );
-
-  const removeFile = (idx: number) => {
-    onFilesChange(files.filter((_, i) => i !== idx));
-  };
-
-  const handleSelectScenario = (sc: (typeof sampleIndustrialScenarios)[0]) => {
-    onQueryChange(sc.query);
-    // Convert string array to File array mock for UI display purposes
-    const mockFiles = sc.files.map((fName) => new File([""], fName, { type: "application/octet-stream" }));
-    onFilesChange(mockFiles);
-  };
-
-  const canSubmit = files.length > 0 && query.trim().length > 10;
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
-      
-      {/* Demo Scenarios */}
-      <div style={{ marginBottom: "0.5rem" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.75rem", color: "var(--text-muted)" }}>
-          <Zap size={16} color="var(--amber-500)" />
-          <span style={{ fontSize: "0.85rem", fontWeight: 600 }}>Demo Scenarios</span>
-        </div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "0.75rem" }}>
-          {sampleIndustrialScenarios.map((sc) => (
-            <button
-              key={sc.id}
-              onClick={() => handleSelectScenario(sc)}
-              style={{
-                textAlign: "left",
-                padding: "0.85rem",
-                background: "var(--bg-raised)",
-                border: "1px solid var(--border-dim)",
-                borderRadius: "8px",
-                cursor: "pointer",
-                transition: "all 0.2s ease"
-              }}
-              onMouseEnter={(e) => (e.currentTarget.style.borderColor = "var(--amber-500)")}
-              onMouseLeave={(e) => (e.currentTarget.style.borderColor = "var(--border-dim)")}
-            >
-              <div style={{ fontSize: "0.8rem", fontWeight: 600, color: "var(--text-primary)", marginBottom: "0.25rem" }}>
-                {sc.title}
-              </div>
-              <div style={{ fontSize: "0.7rem", color: "var(--text-dim)" }}>
-                {sc.category.replace(/_/g, " ")}
-              </div>
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <hr style={{ border: "none", borderTop: "1px solid var(--border-dim)", margin: "0.5rem 0" }} />
-
-      {/* Drop Zone */}
-      <div
-        className={`scan-dropzone ${dragging ? "drag-over" : ""} ${files.length > 0 ? "has-file" : ""}`}
-        style={{ minHeight: "220px", cursor: "pointer" }}
-        onClick={() => inputRef.current?.click()}
-        onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
-        onDragLeave={() => setDragging(false)}
-        onDrop={onDrop}
-      >
-        <div className="scanline-sweep" />
-
-        {files.length === 0 ? (
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              justifyContent: "center",
-              padding: "2.5rem",
-              gap: "0.85rem",
-              userSelect: "none",
-            }}
-          >
-            <div
-              style={{
-                width: "56px",
-                height: "56px",
-                borderRadius: "12px",
-                background: "var(--bg-raised)",
-                border: "1px solid var(--border-base)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-            >
-              <UploadCloud size={28} color="var(--text-dim)" />
-            </div>
-            <div style={{ textAlign: "center" }}>
-              <p style={{ fontWeight: 600, fontSize: "0.95rem", color: "var(--text-primary)" }}>
-                Select documents to analyze
-              </p>
-              <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginTop: "0.3rem" }}>
-                Supports PDFs, Images, and CSVs
-              </p>
-            </div>
-          </div>
-        ) : (
-          <div style={{ padding: "1.25rem", display: "flex", flexDirection: "column", gap: "0.6rem" }}>
-            <div
-              style={{
-                fontSize: "0.8rem",
-                color: "var(--text-primary)",
-                marginBottom: "0.25rem",
-                fontWeight: 600,
-              }}
-            >
-              {files.length} document{files.length > 1 ? "s" : ""} selected
-            </div>
-            {files.map((f, i) => (
-              <div
-                key={i}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "0.75rem",
-                  background: "var(--bg-panel)",
-                  border: "1px solid var(--border-dim)",
-                  borderRadius: "7px",
-                  padding: "0.6rem 0.85rem",
-                }}
-                onClick={(e) => e.stopPropagation()}
-              >
-                <FileText size={16} color="var(--amber-500)" />
-                <span
-                  style={{
-                    flex: 1,
-                    fontSize: "0.85rem",
-                    color: "var(--text-primary)",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  {f.name}
-                </span>
-                <button
-                  style={{
-                    background: "transparent",
-                    border: "none",
-                    color: "var(--text-dim)",
-                    cursor: "pointer",
-                    display: "flex",
-                    alignItems: "center",
-                    padding: "2px",
-                    borderRadius: "4px",
-                  }}
-                  onClick={() => removeFile(i)}
-                >
-                  <X size={16} />
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-
-        <input
-          ref={inputRef}
-          type="file"
-          multiple
-          style={{ display: "none" }}
-          onChange={(e) => addFiles(e.target.files)}
-        />
-      </div>
-
-      {/* Instruction */}
-      <div>
-        <label
-          style={{
-            display: "block",
-            fontSize: "0.8rem",
-            color: "var(--text-primary)",
-            fontWeight: 600,
-            marginBottom: "0.5rem",
-          }}
-        >
-          Instructions
-        </label>
-        <textarea
-          className="input-base"
-          rows={3}
-          value={query}
-          onChange={(e) => onQueryChange(e.target.value)}
-          placeholder="e.g. Extract weld thickness data and flag safety violations"
-        />
-      </div>
-
-      {/* CTA */}
-      <button
-        className="btn btn--primary"
-        disabled={!canSubmit}
-        onClick={onSubmit}
-        style={{ alignSelf: "flex-end", padding: "0.7rem 1.75rem", fontSize: "0.875rem" }}
-      >
-        <ScanLine size={17} />
-        Start Analysis
-      </button>
-    </div>
-  );
-};
-
-// ── Phase 2: Scanning in Progress ────────────────────────────────────────────
-
-const ScanningPhase: React.FC<{ files: File[]; query: string }> = ({ files }) => {
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
-      <div style={{ position: "relative", borderRadius: "10px", overflow: "hidden", background: "var(--bg-panel)", border: "1px solid var(--border-base)" }}>
-        <div
-          style={{
-            padding: "3rem 2rem",
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            gap: "1.5rem",
-            justifyContent: "center",
-          }}
-        >
-          <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", justifyContent: "center" }}>
-            {files.map((f, i) => (
-              <div
-                key={i}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "0.5rem",
-                  background: "var(--bg-raised)",
-                  border: "1px solid var(--border-base)",
-                  borderRadius: "8px",
-                  padding: "0.6rem 1rem",
-                }}
-              >
-                <FileText size={18} color="var(--amber-500)" />
-                <span style={{ fontSize: "0.85rem", color: "var(--text-primary)" }}>
-                  {f.name}
-                </span>
-              </div>
-            ))}
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", color: "var(--amber-500)" }}>
-            <Loader2 size={20} style={{ animation: "spin 1.2s linear infinite" }} />
-            <span style={{ fontSize: "0.9rem", fontWeight: 600 }}>
-              Executing Autonomous Agent...
-            </span>
-          </div>
-        </div>
-        <div className="scanline-sweep scanline-sweep--active" />
-      </div>
-    </div>
-  );
-};
-
-// ── Phase 3: Results ──────────────────────────────────────────────────────────
-
-const ResultsPhase: React.FC<{
-  state: AgentState;
-  onReset: () => void;
-  onSubmitApproval: Props["onSubmitApproval"];
-}> = ({ state, onReset, onSubmitApproval }) => {
-  
-  const findingsEntries = Object.entries(state.findings || {}).filter(
-    ([, v]) => v !== null && v !== undefined && v !== ""
-  );
-
-  let activeModel = "Llama-3.3-70B-Instruct";
-  if (state.category === "SANDBOX_CODE_EXECUTION") {
-    activeModel = "Qwen-2.5-Coder-32B";
-  } else if (state.category === "DOCUMENT_INSPECTION") {
-    activeModel = "LLaVA-v1.6-34B-Vision";
-  }
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
-      {/* ── Summary header ── */}
-      <div
-        className="panel"
-        style={{
-          padding: "1.25rem 1.5rem",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: "1rem",
-          flexWrap: "wrap",
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
-          <div
-            style={{
-              width: "40px",
-              height: "40px",
-              borderRadius: "10px",
-              background: "rgba(16,185,129,0.15)",
-              border: "1px solid rgba(16,185,129,0.3)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              flexShrink: 0,
-            }}
-          >
-             <CheckCircle2 size={20} color="var(--green-500)" />
-          </div>
-          <div>
-            <div
-              style={{
-                fontWeight: 600,
-                fontSize: "1rem",
-                color: "var(--text-primary)",
-              }}
-            >
-              Agent Execution Complete
-            </div>
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "0.4rem",
-                fontSize: "0.8rem",
-                color: "var(--text-muted)",
-                marginTop: "0.25rem"
-              }}
-            >
-              <Cpu size={14} color="var(--amber-500)" />
-              Auto-Routed Model: <span style={{ fontWeight: 600, color: "var(--text-primary)" }}>{activeModel}</span>
-            </div>
-          </div>
-        </div>
-
-        <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
-          <button className="btn btn--secondary" onClick={onReset}>
-            <RotateCcw size={16} />
-            Start New Task
-          </button>
-        </div>
-      </div>
-
-      {/* ── Findings grid ── */}
-      {findingsEntries.length > 0 && (
-        <div className="panel" style={{ padding: "1.5rem" }}>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "0.5rem",
-              marginBottom: "1.25rem",
-            }}
-          >
-            <ClipboardList size={18} color="var(--amber-500)" />
-            <h3 style={{ fontSize: "1rem", fontWeight: 600, color: "var(--text-primary)" }}>
-              Key Findings
-            </h3>
-          </div>
-          <div className="findings-grid">
-            {findingsEntries.map(([key, val]) => (
-              <div key={key} className="finding-cell">
-                <div className="finding-cell__label">
-                  {key.replace(/_/g, " ").toUpperCase()}
-                </div>
-                <div className="finding-cell__value">
-                  {typeof val === "boolean"
-                    ? val
-                      ? "Yes"
-                      : "No"
-                    : typeof val === "number"
-                    ? val.toLocaleString()
-                    : String(val)}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* ── Deliverables ── */}
-      <DeliverablesPreview state={state} />
-
-      {/* ── Approval ── */}
-      <div
-        className="panel"
-        style={{
-          padding: "1.5rem",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-        }}
-      >
-        <div>
-          <div style={{ fontSize: "1rem", fontWeight: 600, color: "var(--text-primary)" }}>
-            Approval Required
-          </div>
-          <div style={{ fontSize: "0.85rem", color: "var(--text-muted)", marginTop: "0.25rem" }}>
-            Please review the findings and generated deliverables.
-          </div>
-        </div>
-        <div style={{ display: "flex", gap: "1rem" }}>
-            <button
-                className="btn btn--danger"
-                onClick={() => onSubmitApproval("REJECTED", "Inspector")}
-            >
-                Reject
-            </button>
-            <button
-                className="btn btn--primary"
-                onClick={() => onSubmitApproval("APPROVED", "Inspector")}
-            >
-                <FileSignature size={16} />
-                Approve Results
-            </button>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// ── Root Workbench ────────────────────────────────────────────────────────────
-
-export const ScanWorkbench: React.FC<Props> = ({
-  state,
-  isRunning,
-  error,
-  onRunTask,
-  onSubmitApproval,
-  onReset,
-}) => {
-  const [files, setFiles] = useState<File[]>([]);
-  const [query, setQuery] = useState("");
-
-  const handleSubmit = () => {
-    onRunTask(query, files.map((f) => f.name));
-  };
-
-  const handleReset = () => {
-    setFiles([]);
-    setQuery("");
-    onReset();
-  };
-
-  // Phase determination
-  const phase: "intake" | "scanning" | "results" =
-    state ? "results" : isRunning ? "scanning" : "intake";
-
-  return (
-    <div style={{ maxWidth: "800px", margin: "0 auto", marginTop: "2rem" }}>
-      {/* Error banner */}
-      {error && (
-        <div
-          style={{
-            display: "flex",
-            alignItems: "flex-start",
-            gap: "0.75rem",
-            padding: "1rem 1.25rem",
-            marginBottom: "1.25rem",
-            background: "rgba(239,68,68,0.1)",
-            border: "1px solid rgba(239,68,68,0.3)",
-            borderRadius: "8px",
-          }}
-        >
-          <AlertTriangle size={18} color="var(--red-400)" style={{ flexShrink: 0, marginTop: "2px" }} />
-          <div style={{ flex: 1 }}>
-            <p style={{ fontWeight: 600, fontSize: "0.9rem", color: "var(--red-400)", marginBottom: "0.25rem" }}>
-              Error
-            </p>
-            <p style={{ fontSize: "0.85rem", color: "var(--text-primary)" }}>{error}</p>
-          </div>
-          <button
-            className="btn btn--secondary"
-            style={{ padding: "0.3rem 0.8rem" }}
-            onClick={handleReset}
-          >
-            Dismiss
-          </button>
-        </div>
-      )}
-
-      {/* Phase content */}
-      {phase === "intake" && (
-        <div className="panel" style={{ padding: "2rem" }}>
-          <div style={{ marginBottom: "1.5rem" }}>
-            <h2 style={{ fontWeight: 600, fontSize: "1.25rem", color: "var(--text-primary)", marginBottom: "0.5rem" }}>
-              New Task Execution
-            </h2>
-            <p style={{ fontSize: "0.9rem", color: "var(--text-muted)" }}>
-              Upload documents or select a demo scenario to initiate autonomous analysis.
-            </p>
-          </div>
-          <IntakeZone
-            files={files}
-            query={query}
-            onFilesChange={setFiles}
-            onQueryChange={setQuery}
-            onSubmit={handleSubmit}
-          />
-        </div>
-      )}
-
-      {phase === "scanning" && (
-        <div className="panel" style={{ padding: "2rem" }}>
-          <ScanningPhase files={files} query={query} />
-        </div>
-      )}
-
-      {phase === "results" && state && (
-        <ResultsPhase state={state} onReset={handleReset} onSubmitApproval={onSubmitApproval} />
-      )}
-    </div>
-  );
-};
-</file>
-
 <file path="frontend/src/components/VerificationBadge.tsx">
 import React from "react";
 import { CheckCircle2, XCircle, ShieldAlert, Sparkles, Lock } from "lucide-react";
@@ -4117,667 +3548,6 @@ export const VerificationBadge: React.FC<VerificationBadgeProps> = ({ verificati
           </div>
         ))}
       </div>
-    </div>
-  );
-};
-</file>
-
-<file path="frontend/src/components/WorkbenchCanvas.tsx">
-import React, { useState } from "react";
-import {
-  Play,
-  FileUp,
-  Clock,
-  Zap,
-  CheckCircle2,
-  AlertCircle,
-  ChevronRight,
-  ChevronDown,
-  Layers,
-  FileCheck,
-  FileSignature,
-  Activity,
-  Cpu,
-  ShieldCheck,
-  Wrench,
-  BookOpen,
-} from "lucide-react";
-import { AgentState, HumanDecision } from "../types/agent";
-import { sampleIndustrialScenarios } from "../services/api";
-import { DeliverablesPreview } from "./DeliverablesPreview";
-import { VerificationBadge } from "./VerificationBadge";
-import { HumanApprovalModal } from "./HumanApprovalModal";
-
-interface WorkbenchCanvasProps {
-  state: AgentState | null;
-  isRunning: boolean;
-  onRunTask: (query: string, files: string[]) => void;
-  onSubmitApproval: (
-    decision: HumanDecision,
-    reviewer: string,
-    comments?: string,
-    modifications?: Record<string, any>
-  ) => void;
-}
-
-export const WorkbenchCanvas: React.FC<WorkbenchCanvasProps> = ({
-  state,
-  isRunning,
-  onRunTask,
-  onSubmitApproval,
-}) => {
-  const [query, setQuery] = useState(
-    sampleIndustrialScenarios[0].query
-  );
-  const [selectedFiles, setSelectedFiles] = useState<string[]>(
-    sampleIndustrialScenarios[0].files
-  );
-  const [expandedToolId, setExpandedToolId] = useState<string | null>(null);
-  const [isApprovalModalOpen, setIsApprovalModalOpen] = useState(false);
-
-  const handleSelectScenario = (sc: (typeof sampleIndustrialScenarios)[0]) => {
-    setQuery(sc.query);
-    setSelectedFiles(sc.files);
-  };
-
-  const handleExecute = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!query.trim() || isRunning) return;
-    onRunTask(query, selectedFiles);
-  };
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
-      {/* Top Banner: Preset Industrial Scenarios */}
-      <div className="glass-panel" style={{ padding: "1.25rem" }}>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            marginBottom: "0.75rem",
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-            <Zap size={16} color="#fbbf24" />
-            <span style={{ fontSize: "0.85rem", fontWeight: 700, color: "#f1f5f9" }}>
-              PRESET INDUSTRIAL & PSU AGENT SCENARIOS
-            </span>
-          </div>
-          <span style={{ fontSize: "0.75rem", color: "#94a3b8" }}>
-            Click any scenario to auto-fill query and confidential document context
-          </span>
-        </div>
-
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
-            gap: "0.75rem",
-          }}
-        >
-          {sampleIndustrialScenarios.map((sc) => (
-            <button
-              key={sc.id}
-              onClick={() => handleSelectScenario(sc)}
-              className="glass-panel-interactive"
-              style={{
-                padding: "0.85rem",
-                textAlign: "left",
-                cursor: "pointer",
-                border: query === sc.query ? "1px solid #10b981" : "1px solid #1e293b",
-                background: query === sc.query ? "rgba(16, 185, 129, 0.1)" : "#0e1629",
-              }}
-            >
-              <div
-                style={{
-                  fontSize: "0.8rem",
-                  fontWeight: 700,
-                  color: query === sc.query ? "#34d399" : "#f1f5f9",
-                  marginBottom: "0.25rem",
-                }}
-              >
-                {sc.title}
-              </div>
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "0.4rem",
-                  fontSize: "0.7rem",
-                  color: "#94a3b8",
-                }}
-              >
-                <span className="badge-tag">{sc.category}</span>
-                <span>• {sc.files.length} attached docs</span>
-              </div>
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Main Studio Grid: Input & Execution Plan */}
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "1.1fr 0.9fr",
-          gap: "1.5rem",
-        }}
-      >
-        {/* LEFT COLUMN: Prompt & Input Studio */}
-        <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
-          <form onSubmit={handleExecute} className="glass-panel" style={{ padding: "1.5rem" }}>
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                marginBottom: "1rem",
-              }}
-            >
-              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                <Layers size={18} color="#38bdf8" />
-                <h3 style={{ fontSize: "1rem", fontWeight: 700, color: "#f1f5f9" }}>
-                  Autonomous Agent Instruction
-                </h3>
-              </div>
-              <span className="badge-sovereign">
-                <ShieldCheck size={12} /> ON-PREMISE REASONING
-              </span>
-            </div>
-
-            {/* Textarea */}
-            <div style={{ marginBottom: "1rem" }}>
-              <textarea
-                rows={5}
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Enter industrial instruction (e.g. review inspection report, execute code sandbox, search SOPs)..."
-                style={{
-                  width: "100%",
-                  background: "#080d1a",
-                  border: "1px solid #27354f",
-                  borderRadius: "8px",
-                  padding: "0.85rem",
-                  color: "#f1f5f9",
-                  fontSize: "0.85rem",
-                  lineHeight: "1.5",
-                  outline: "none",
-                  resize: "vertical",
-                }}
-              />
-            </div>
-
-            {/* Attached Confidential Files */}
-            <div style={{ marginBottom: "1.25rem" }}>
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  marginBottom: "0.5rem",
-                }}
-              >
-                <span style={{ fontSize: "0.75rem", fontWeight: 600, color: "#94a3b8" }}>
-                  ATTACHED ON-PREMISE ASSETS (P&ID, SCANNED PDFs, TELEMETRY)
-                </span>
-                <label
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "0.3rem",
-                    fontSize: "0.75rem",
-                    color: "#38bdf8",
-                    cursor: "pointer",
-                  }}
-                >
-                  <FileUp size={14} /> Add Local File
-                  <input
-                    type="file"
-                    multiple
-                    style={{ display: "none" }}
-                    onChange={(e) => {
-                      if (e.target.files) {
-                        const names = Array.from(e.target.files).map((f) => f.name);
-                        setSelectedFiles([...selectedFiles, ...names]);
-                      }
-                    }}
-                  />
-                </label>
-              </div>
-
-              <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem" }}>
-                {selectedFiles.map((file, idx) => (
-                  <div
-                    key={idx}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "0.4rem",
-                      padding: "0.3rem 0.65rem",
-                      background: "#0c1424",
-                      border: "1px solid #1e293b",
-                      borderRadius: "6px",
-                      fontSize: "0.75rem",
-                      color: "#e2e8f0",
-                      fontFamily: "var(--font-mono)",
-                    }}
-                  >
-                    <FileCheck size={14} color="#10b981" />
-                    <span>{file}</span>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setSelectedFiles(selectedFiles.filter((_, i) => i !== idx))
-                      }
-                      style={{
-                        background: "transparent",
-                        border: "none",
-                        color: "#64748b",
-                        cursor: "pointer",
-                        marginLeft: "0.2rem",
-                      }}
-                    >
-                      ×
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Launch Button & Status */}
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                borderTop: "1px solid #1e293b",
-                paddingTop: "1.25rem",
-              }}
-            >
-              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                <Activity size={16} color="#34d399" />
-                <span style={{ fontSize: "0.75rem", color: "#94a3b8" }}>
-                  Model Auto-Selector: <strong>Dynamic Local Routing</strong>
-                </span>
-              </div>
-
-              <button
-                type="submit"
-                disabled={isRunning}
-                className="btn-primary"
-                style={{
-                  opacity: isRunning ? 0.7 : 1,
-                  cursor: isRunning ? "not-allowed" : "pointer",
-                }}
-              >
-                {isRunning ? (
-                  <>
-                    <span className="animate-spin-slow">⏳</span>
-                    <span>Executing Sovereign Agent...</span>
-                  </>
-                ) : (
-                  <>
-                    <Play size={16} />
-                    <span>Launch Autonomous Plan</span>
-                  </>
-                )}
-              </button>
-            </div>
-          </form>
-
-          {/* Verification Badge */}
-          {state && <VerificationBadge verification={state.verification} />}
-        </div>
-
-        {/* RIGHT COLUMN: Step-by-Step Plan & Execution State */}
-        <div className="glass-panel" style={{ padding: "1.5rem", display: "flex", flexDirection: "column" }}>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              marginBottom: "1.25rem",
-              borderBottom: "1px solid #1e293b",
-              paddingBottom: "0.75rem",
-            }}
-          >
-            <div>
-              <h3 style={{ fontSize: "1rem", fontWeight: 700, color: "#f1f5f9" }}>
-                Multi-Step Execution State Machine
-              </h3>
-              <p style={{ fontSize: "0.75rem", color: "#94a3b8" }}>
-                Task ID:{" "}
-                <span className="font-mono" style={{ color: "#38bdf8" }}>
-                  {state ? state.task_id : "Awaiting launch"}
-                </span>
-              </p>
-            </div>
-
-            {state && (
-              <span
-                style={{
-                  padding: "0.25rem 0.65rem",
-                  borderRadius: "9999px",
-                  fontSize: "0.75rem",
-                  fontWeight: 700,
-                  fontFamily: "var(--font-mono)",
-                  background:
-                    state.status === "COMPLETED"
-                      ? "rgba(16, 185, 129, 0.2)"
-                      : state.status === "AWAITING_APPROVAL"
-                      ? "rgba(245, 158, 11, 0.2)"
-                      : "rgba(59, 130, 246, 0.2)",
-                  color:
-                    state.status === "COMPLETED"
-                      ? "#34d399"
-                      : state.status === "AWAITING_APPROVAL"
-                      ? "#fbbf24"
-                      : "#60a5fa",
-                  border: "1px solid currentColor",
-                }}
-              >
-                {state.status}
-              </span>
-            )}
-          </div>
-
-          {/* Steps List */}
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              gap: "0.75rem",
-              maxHeight: "480px",
-              overflowY: "auto",
-              paddingRight: "0.25rem",
-            }}
-          >
-            {state && state.plan.length > 0 ? (
-              state.plan.map((step) => {
-                const toolCall = state.tool_calls.find((tc) => tc.step_id === step.step_id);
-                const isExpanded = expandedToolId === `step_${step.step_id}`;
-
-                return (
-                  <div
-                    key={step.step_id}
-                    style={{
-                      background: "#0c1322",
-                      border:
-                        step.status === "COMPLETED"
-                          ? "1px solid #1e293b"
-                          : step.status === "IN_PROGRESS"
-                          ? "1px solid #3b82f6"
-                          : "1px solid #1e293b",
-                      borderRadius: "8px",
-                      overflow: "hidden",
-                    }}
-                  >
-                    <div
-                      onClick={() =>
-                        setExpandedToolId(isExpanded ? null : `step_${step.step_id}`)
-                      }
-                      style={{
-                        padding: "0.75rem 1rem",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "space-between",
-                        cursor: "pointer",
-                        background:
-                          step.status === "IN_PROGRESS"
-                            ? "rgba(59, 130, 246, 0.1)"
-                            : "transparent",
-                      }}
-                    >
-                      <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-                        {step.status === "COMPLETED" ? (
-                          <CheckCircle2 size={18} color="#10b981" />
-                        ) : step.status === "IN_PROGRESS" ? (
-                          <span className="animate-spin-slow" style={{ fontSize: "1rem" }}>
-                            ⚙️
-                          </span>
-                        ) : step.status === "FAILED" ? (
-                          <AlertCircle size={18} color="#ef4444" />
-                        ) : (
-                          <div
-                            style={{
-                              width: "18px",
-                              height: "18px",
-                              borderRadius: "50%",
-                              border: "2px solid #334155",
-                            }}
-                          />
-                        )}
-
-                        <div>
-                          <div style={{ fontSize: "0.85rem", fontWeight: 600, color: "#f1f5f9" }}>
-                            Step {step.step_id}: {step.title}
-                          </div>
-                          <div
-                            style={{
-                              display: "flex",
-                              alignItems: "center",
-                              gap: "0.4rem",
-                              fontSize: "0.72rem",
-                              color: "#94a3b8",
-                              marginTop: "0.15rem",
-                            }}
-                          >
-                            <span className="font-mono" style={{ color: "#38bdf8" }}>
-                              <Wrench size={12} style={{ display: "inline", marginRight: "2px" }} />
-                              {step.assigned_tool}
-                            </span>
-                            {toolCall && (
-                              <span>• {toolCall.execution_time_ms}ms</span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-
-                      {isExpanded ? (
-                        <ChevronDown size={16} color="#64748b" />
-                      ) : (
-                        <ChevronRight size={16} color="#64748b" />
-                      )}
-                    </div>
-
-                    {/* Expanded Tool Call Details */}
-                    {isExpanded && (
-                      <div
-                        style={{
-                          padding: "0.85rem 1rem",
-                          borderTop: "1px solid #1e293b",
-                          background: "#050811",
-                        }}
-                      >
-                        <p style={{ fontSize: "0.75rem", color: "#cbd5e1", marginBottom: "0.5rem" }}>
-                          {step.description}
-                        </p>
-
-                        {step.result && (
-                          <div>
-                            <span
-                              style={{
-                                fontSize: "0.7rem",
-                                fontWeight: 700,
-                                color: "#34d399",
-                                fontFamily: "var(--font-mono)",
-                              }}
-                            >
-                              TOOL RESULT PAYLOAD:
-                            </span>
-                            <pre
-                              className="font-mono"
-                              style={{
-                                background: "#090f1d",
-                                border: "1px solid #1e293b",
-                                borderRadius: "4px",
-                                padding: "0.5rem",
-                                fontSize: "0.72rem",
-                                color: "#94a3b8",
-                                overflowX: "auto",
-                                marginTop: "0.25rem",
-                              }}
-                            >
-                              {JSON.stringify(step.result, null, 2)}
-                            </pre>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                );
-              })
-            ) : (
-              <div
-                style={{
-                  textAlign: "center",
-                  padding: "3rem 1rem",
-                  color: "#64748b",
-                }}
-              >
-                <Layers size={36} style={{ margin: "0 auto 0.75rem", opacity: 0.4 }} />
-                <p style={{ fontSize: "0.85rem" }}>No active agent execution plan.</p>
-                <p style={{ fontSize: "0.75rem" }}>
-                  Launch a scenario or submit a prompt to begin multi-step orchestration.
-                </p>
-              </div>
-            )}
-          </div>
-
-          {/* HITL Sign-Off Gate Action Bar */}
-          {state && (
-            <div
-              style={{
-                marginTop: "auto",
-                paddingTop: "1.25rem",
-                borderTop: "1px solid #1e293b",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-              }}
-            >
-              <div>
-                <span style={{ fontSize: "0.75rem", color: "#94a3b8" }}>
-                  HITL Review Gate:{" "}
-                </span>
-                <span
-                  style={{
-                    fontSize: "0.8rem",
-                    fontWeight: 700,
-                    color:
-                      state.approval.status === "APPROVED"
-                        ? "#34d399"
-                        : state.approval.status === "REJECTED"
-                        ? "#f87171"
-                        : "#fbbf24",
-                  }}
-                >
-                  {state.approval.status}
-                </span>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => setIsApprovalModalOpen(true)}
-                className="btn-secondary"
-                style={{ padding: "0.45rem 0.85rem", fontSize: "0.8rem" }}
-              >
-                <FileSignature size={14} />
-                <span>Review & Sign Deliverables</span>
-              </button>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Grounded Evidence Citations */}
-      {state && state.retrieved_evidence.length > 0 && (
-        <div className="glass-panel" style={{ padding: "1.25rem" }}>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "0.5rem",
-              marginBottom: "0.75rem",
-            }}
-          >
-            <BookOpen size={16} color="#38bdf8" />
-            <h4 style={{ fontSize: "0.9rem", fontWeight: 700, color: "#f1f5f9" }}>
-              Grounded SOP & Standard Citations (Vector RAG)
-            </h4>
-          </div>
-
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
-              gap: "0.75rem",
-            }}
-          >
-            {state.retrieved_evidence.map((ev, idx) => (
-              <div
-                key={idx}
-                style={{
-                  background: "#0a1021",
-                  border: "1px solid #1e293b",
-                  borderRadius: "8px",
-                  padding: "0.85rem",
-                }}
-              >
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    marginBottom: "0.35rem",
-                  }}
-                >
-                  <span
-                    style={{
-                      fontSize: "0.8rem",
-                      fontWeight: 700,
-                      color: "#38bdf8",
-                      fontFamily: "var(--font-mono)",
-                    }}
-                  >
-                    {ev.source_doc} {ev.page_num && `(p. ${ev.page_num})`}
-                  </span>
-                  <span
-                    style={{
-                      fontSize: "0.7rem",
-                      fontFamily: "var(--font-mono)",
-                      color: "#34d399",
-                    }}
-                  >
-                    {(ev.confidence_score * 100).toFixed(1)}% Match
-                  </span>
-                </div>
-                <p style={{ fontSize: "0.78rem", color: "#94a3b8", fontStyle: "italic" }}>
-                  "{ev.snippet}"
-                </p>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Deliverables Section */}
-      {state && (
-        <div style={{ marginTop: "0.5rem" }}>
-          <DeliverablesPreview state={state} />
-        </div>
-      )}
-
-      {/* Human Approval Modal */}
-      {state && (
-        <HumanApprovalModal
-          state={state}
-          isOpen={isApprovalModalOpen}
-          onClose={() => setIsApprovalModalOpen(false)}
-          onSubmitDecision={onSubmitApproval}
-        />
-      )}
     </div>
   );
 };
@@ -6712,6 +5482,586 @@ export const NetworkMonitor: React.FC = () => {
 };
 </file>
 
+<file path="frontend/src/components/ScanWorkbench.tsx">
+import React, { useState, useRef, useCallback } from "react";
+import {
+  UploadCloud,
+  FileText,
+  X,
+  ScanLine,
+  CheckCircle2,
+  FileSignature,
+  RotateCcw,
+  Loader2,
+  ClipboardList,
+  AlertTriangle,
+  Zap,
+  Cpu,
+} from "lucide-react";
+import type { AgentState, HumanDecision } from "../types/agent";
+import { DeliverablesPreview } from "./DeliverablesPreview";
+import { sampleIndustrialScenarios, uploadFile } from "../services/api";
+interface Props {
+  state: AgentState | null;
+  isRunning: boolean;
+  error: string | null;
+  onRunTask: (query: string, files: string[]) => void;
+  onSubmitApproval: (
+    decision: HumanDecision,
+    reviewer: string,
+    comments?: string,
+    modifications?: Record<string, unknown>
+  ) => void;
+  onReset: () => void;
+}
+
+// ── Phase 1: Document Intake ─────────────────────────────────────────────────
+
+const IntakeZone: React.FC<{
+  files: File[];
+  query: string;
+  isUploading: boolean;
+  onFilesChange: (f: File[]) => void;
+  onQueryChange: (q: string) => void;
+  onSubmit: () => void;
+}> = ({ files, query, isUploading, onFilesChange, onQueryChange, onSubmit }) => {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [dragging, setDragging] = useState(false);
+
+  const addFiles = (incoming: FileList | null) => {
+    if (!incoming) return;
+    onFilesChange([...files, ...Array.from(incoming)]);
+  };
+
+  const onDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      setDragging(false);
+      addFiles(e.dataTransfer.files);
+    },
+    [files]
+  );
+
+  const removeFile = (idx: number) => {
+    onFilesChange(files.filter((_, i) => i !== idx));
+  };
+
+  const handleSelectScenario = (sc: (typeof sampleIndustrialScenarios)[0]) => {
+    onQueryChange(sc.query);
+  };
+
+const canSubmit = files.length > 0 && query.trim().length > 10 && !isUploading;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+      
+      {/* Demo Scenarios */}
+      <div style={{ marginBottom: "0.5rem" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.75rem", color: "var(--text-muted)" }}>
+          <Zap size={16} color="var(--amber-500)" />
+          <span style={{ fontSize: "0.85rem", fontWeight: 600 }}>Demo Scenarios</span>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "0.75rem" }}>
+          {sampleIndustrialScenarios.map((sc) => (
+            <button
+              key={sc.id}
+              onClick={() => handleSelectScenario(sc)}
+              style={{
+                textAlign: "left",
+                padding: "0.85rem",
+                background: "var(--bg-raised)",
+                border: "1px solid var(--border-dim)",
+                borderRadius: "8px",
+                cursor: "pointer",
+                transition: "all 0.2s ease"
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.borderColor = "var(--amber-500)")}
+              onMouseLeave={(e) => (e.currentTarget.style.borderColor = "var(--border-dim)")}
+            >
+              <div style={{ fontSize: "0.8rem", fontWeight: 600, color: "var(--text-primary)", marginBottom: "0.25rem" }}>
+                {sc.title}
+              </div>
+              <div style={{ fontSize: "0.7rem", color: "var(--text-dim)" }}>
+                {sc.category.replace(/_/g, " ")}
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <hr style={{ border: "none", borderTop: "1px solid var(--border-dim)", margin: "0.5rem 0" }} />
+
+      {/* Drop Zone */}
+      <div
+        className={`scan-dropzone ${dragging ? "drag-over" : ""} ${files.length > 0 ? "has-file" : ""}`}
+        style={{ minHeight: "220px", cursor: "pointer" }}
+        onClick={() => inputRef.current?.click()}
+        onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={onDrop}
+      >
+        <div className="scanline-sweep" />
+
+        {files.length === 0 ? (
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: "2.5rem",
+              gap: "0.85rem",
+              userSelect: "none",
+            }}
+          >
+            <div
+              style={{
+                width: "56px",
+                height: "56px",
+                borderRadius: "12px",
+                background: "var(--bg-raised)",
+                border: "1px solid var(--border-base)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <UploadCloud size={28} color="var(--text-dim)" />
+            </div>
+            <div style={{ textAlign: "center" }}>
+              <p style={{ fontWeight: 600, fontSize: "0.95rem", color: "var(--text-primary)" }}>
+                Select documents to analyze
+              </p>
+              <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginTop: "0.3rem" }}>
+                Supports PDFs, Images, and CSVs
+              </p>
+            </div>
+          </div>
+        ) : (
+          <div style={{ padding: "1.25rem", display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+            <div
+              style={{
+                fontSize: "0.8rem",
+                color: "var(--text-primary)",
+                marginBottom: "0.25rem",
+                fontWeight: 600,
+              }}
+            >
+              {files.length} document{files.length > 1 ? "s" : ""} selected
+            </div>
+            {files.map((f, i) => (
+              <div
+                key={i}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "0.75rem",
+                  background: "var(--bg-panel)",
+                  border: "1px solid var(--border-dim)",
+                  borderRadius: "7px",
+                  padding: "0.6rem 0.85rem",
+                }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <FileText size={16} color="var(--amber-500)" />
+                <span
+                  style={{
+                    flex: 1,
+                    fontSize: "0.85rem",
+                    color: "var(--text-primary)",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {f.name}
+                </span>
+                <button
+                  style={{
+                    background: "transparent",
+                    border: "none",
+                    color: "var(--text-dim)",
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    padding: "2px",
+                    borderRadius: "4px",
+                  }}
+                  onClick={() => removeFile(i)}
+                >
+                  <X size={16} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <input
+          ref={inputRef}
+          type="file"
+          multiple
+          style={{ display: "none" }}
+          onChange={(e) => addFiles(e.target.files)}
+        />
+      </div>
+
+      {/* Instruction */}
+      <div>
+        <label
+          style={{
+            display: "block",
+            fontSize: "0.8rem",
+            color: "var(--text-primary)",
+            fontWeight: 600,
+            marginBottom: "0.5rem",
+          }}
+        >
+          Instructions
+        </label>
+        <textarea
+          className="input-base"
+          rows={3}
+          value={query}
+          onChange={(e) => onQueryChange(e.target.value)}
+          placeholder="e.g. Extract weld thickness data and flag safety violations"
+        />
+      </div>
+
+      {/* CTA */}
+      <button
+        className="btn btn--primary"
+        disabled={!canSubmit}
+        onClick={onSubmit}
+        style={{ alignSelf: "flex-end", padding: "0.7rem 1.75rem", fontSize: "0.875rem" }}
+      >
+        <ScanLine size={17} />
+        {isUploading ? "Uploading..." : "Start Analysis"}
+      </button>
+    </div>
+  );
+};
+
+// ── Phase 2: Scanning in Progress ────────────────────────────────────────────
+
+const ScanningPhase: React.FC<{ files: File[]; query: string }> = ({ files }) => {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
+      <div style={{ position: "relative", borderRadius: "10px", overflow: "hidden", background: "var(--bg-panel)", border: "1px solid var(--border-base)" }}>
+        <div
+          style={{
+            padding: "3rem 2rem",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            gap: "1.5rem",
+            justifyContent: "center",
+          }}
+        >
+          <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", justifyContent: "center" }}>
+            {files.map((f, i) => (
+              <div
+                key={i}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "0.5rem",
+                  background: "var(--bg-raised)",
+                  border: "1px solid var(--border-base)",
+                  borderRadius: "8px",
+                  padding: "0.6rem 1rem",
+                }}
+              >
+                <FileText size={18} color="var(--amber-500)" />
+                <span style={{ fontSize: "0.85rem", color: "var(--text-primary)" }}>
+                  {f.name}
+                </span>
+              </div>
+            ))}
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", color: "var(--amber-500)" }}>
+            <Loader2 size={20} style={{ animation: "spin 1.2s linear infinite" }} />
+            <span style={{ fontSize: "0.9rem", fontWeight: 600 }}>
+              Executing Autonomous Agent...
+            </span>
+          </div>
+        </div>
+        <div className="scanline-sweep scanline-sweep--active" />
+      </div>
+    </div>
+  );
+};
+
+// ── Phase 3: Results ──────────────────────────────────────────────────────────
+
+const ResultsPhase: React.FC<{
+  state: AgentState;
+  onReset: () => void;
+  onSubmitApproval: Props["onSubmitApproval"];
+}> = ({ state, onReset, onSubmitApproval }) => {
+  
+  const findingsEntries = Object.entries(state.findings || {}).filter(
+    ([, v]) => v !== null && v !== undefined && v !== ""
+  );
+
+  let activeModel = "Llama-3.3-70B-Instruct";
+  if (state.category === "SANDBOX_CODE_EXECUTION") {
+    activeModel = "Qwen-2.5-Coder-32B";
+  } else if (state.category === "DOCUMENT_INSPECTION") {
+    activeModel = "LLaVA-v1.6-34B-Vision";
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
+      {/* ── Summary header ── */}
+      <div
+        className="panel"
+        style={{
+          padding: "1.25rem 1.5rem",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: "1rem",
+          flexWrap: "wrap",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
+          <div
+            style={{
+              width: "40px",
+              height: "40px",
+              borderRadius: "10px",
+              background: "rgba(16,185,129,0.15)",
+              border: "1px solid rgba(16,185,129,0.3)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              flexShrink: 0,
+            }}
+          >
+             <CheckCircle2 size={20} color="var(--green-500)" />
+          </div>
+          <div>
+            <div
+              style={{
+                fontWeight: 600,
+                fontSize: "1rem",
+                color: "var(--text-primary)",
+              }}
+            >
+              Agent Execution Complete
+            </div>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "0.4rem",
+                fontSize: "0.8rem",
+                color: "var(--text-muted)",
+                marginTop: "0.25rem"
+              }}
+            >
+              <Cpu size={14} color="var(--amber-500)" />
+              Auto-Routed Model: <span style={{ fontWeight: 600, color: "var(--text-primary)" }}>{activeModel}</span>
+            </div>
+          </div>
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
+          <button className="btn btn--secondary" onClick={onReset}>
+            <RotateCcw size={16} />
+            Start New Task
+          </button>
+        </div>
+      </div>
+
+      {/* ── Findings grid ── */}
+      {findingsEntries.length > 0 && (
+        <div className="panel" style={{ padding: "1.5rem" }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "0.5rem",
+              marginBottom: "1.25rem",
+            }}
+          >
+            <ClipboardList size={18} color="var(--amber-500)" />
+            <h3 style={{ fontSize: "1rem", fontWeight: 600, color: "var(--text-primary)" }}>
+              Key Findings
+            </h3>
+          </div>
+          <div className="findings-grid">
+            {findingsEntries.map(([key, val]) => (
+              <div key={key} className="finding-cell">
+                <div className="finding-cell__label">
+                  {key.replace(/_/g, " ").toUpperCase()}
+                </div>
+                <div className="finding-cell__value">
+                  {typeof val === "boolean"
+                    ? val
+                      ? "Yes"
+                      : "No"
+                    : typeof val === "number"
+                    ? val.toLocaleString()
+                    : String(val)}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Deliverables ── */}
+      <DeliverablesPreview state={state} />
+
+      {/* ── Approval ── */}
+      <div
+        className="panel"
+        style={{
+          padding: "1.5rem",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+        }}
+      >
+        <div>
+          <div style={{ fontSize: "1rem", fontWeight: 600, color: "var(--text-primary)" }}>
+            Approval Required
+          </div>
+          <div style={{ fontSize: "0.85rem", color: "var(--text-muted)", marginTop: "0.25rem" }}>
+            Please review the findings and generated deliverables.
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: "1rem" }}>
+            <button
+                className="btn btn--danger"
+                onClick={() => onSubmitApproval("REJECTED", "Inspector")}
+            >
+                Reject
+            </button>
+            <button
+                className="btn btn--primary"
+                onClick={() => onSubmitApproval("APPROVED", "Inspector")}
+            >
+                <FileSignature size={16} />
+                Approve Results
+            </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ── Root Workbench ────────────────────────────────────────────────────────────
+
+export const ScanWorkbench: React.FC<Props> = ({
+  state,
+  isRunning,
+  error,
+  onRunTask,
+  onSubmitApproval,
+  onReset,
+}) => {
+const [files, setFiles] = useState<File[]>([]);
+const [query, setQuery] = useState("");
+const [isUploading, setIsUploading] = useState(false);
+
+const handleSubmit = async () => {
+  setIsUploading(true);
+  try {
+    // Files must exist on the backend's filesystem before /api/agent/run —
+    // the orchestrator's _build_tool_params reads input_files as real
+    // server-side paths, not browser filenames. Upload each file first.
+    const uploaded = await Promise.all(files.map((f) => uploadFile(f)));
+    const savedPaths = uploaded.map((u) => u.saved_path);
+    onRunTask(query, savedPaths);
+  } catch (err) {
+    console.error("File upload failed before agent run:", err);
+    onRunTask(query, []);
+  } finally {
+    setIsUploading(false);
+  }
+};
+
+  const handleReset = () => {
+    setFiles([]);
+    setQuery("");
+    onReset();
+  };
+
+  // Phase determination
+  const phase: "intake" | "scanning" | "results" =
+    state ? "results" : isRunning ? "scanning" : "intake";
+
+  return (
+    <div style={{ maxWidth: "800px", margin: "0 auto", marginTop: "2rem" }}>
+      {/* Error banner */}
+      {error && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "flex-start",
+            gap: "0.75rem",
+            padding: "1rem 1.25rem",
+            marginBottom: "1.25rem",
+            background: "rgba(239,68,68,0.1)",
+            border: "1px solid rgba(239,68,68,0.3)",
+            borderRadius: "8px",
+          }}
+        >
+          <AlertTriangle size={18} color="var(--red-400)" style={{ flexShrink: 0, marginTop: "2px" }} />
+          <div style={{ flex: 1 }}>
+            <p style={{ fontWeight: 600, fontSize: "0.9rem", color: "var(--red-400)", marginBottom: "0.25rem" }}>
+              Error
+            </p>
+            <p style={{ fontSize: "0.85rem", color: "var(--text-primary)" }}>{error}</p>
+          </div>
+          <button
+            className="btn btn--secondary"
+            style={{ padding: "0.3rem 0.8rem" }}
+            onClick={handleReset}
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {/* Phase content */}
+      {phase === "intake" && (
+        <div className="panel" style={{ padding: "2rem" }}>
+          <div style={{ marginBottom: "1.5rem" }}>
+            <h2 style={{ fontWeight: 600, fontSize: "1.25rem", color: "var(--text-primary)", marginBottom: "0.5rem" }}>
+              New Task Execution
+            </h2>
+            <p style={{ fontSize: "0.9rem", color: "var(--text-muted)" }}>
+              Upload documents or select a demo scenario to initiate autonomous analysis.
+            </p>
+          </div>
+            <IntakeZone
+              files={files}
+              query={query}
+              isUploading={isUploading}
+              onFilesChange={setFiles}
+              onQueryChange={setQuery}
+              onSubmit={handleSubmit}
+            />
+        </div>
+      )}
+
+      {phase === "scanning" && (
+        <div className="panel" style={{ padding: "2rem" }}>
+          <ScanningPhase files={files} query={query} />
+        </div>
+      )}
+
+      {phase === "results" && state && (
+        <ResultsPhase state={state} onReset={handleReset} onSubmitApproval={onSubmitApproval} />
+      )}
+    </div>
+  );
+};
+</file>
+
 <file path="frontend/src/App.tsx">
 import { useState } from "react";
 import { Navbar, type NavTab } from "./components/Navbar";
@@ -7975,6 +7325,7 @@ pdf2image>=1.17.0
 Pillow>=12.0.0
 python-docx>=1.2.0
 openpyxl>=3.1.5
+psutil>=5.9.0
 </file>
 
 </files>
