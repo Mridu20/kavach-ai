@@ -87,16 +87,18 @@ evaluate_inspection_integrity()
   };
 
   return (
-    <div className="glass-panel" style={{ overflow: "hidden" }}>
+    <div className="panel" style={{ overflow: "hidden", background: "#ffffff" }}>
       {/* Deliverables Header Tabs */}
       <div
         style={{
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
-          padding: "0.85rem 1.25rem",
-          background: "#0a1021",
-          borderBottom: "1px solid #1e293b",
+          padding: "0.75rem 1.25rem",
+          background: "#f8fafc",
+          borderBottom: "1px solid var(--border-dim)",
+          flexWrap: "wrap",
+          gap: "0.75rem",
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
@@ -111,9 +113,9 @@ evaluate_inspection_integrity()
               fontSize: "0.8rem",
               fontWeight: 600,
               cursor: "pointer",
-              background: activeTab === "docx" ? "rgba(59, 130, 246, 0.2)" : "transparent",
-              color: activeTab === "docx" ? "#60a5fa" : "#94a3b8",
-              border: activeTab === "docx" ? "1px solid rgba(59, 130, 246, 0.4)" : "1px solid transparent",
+              background: activeTab === "docx" ? "#e0f2fe" : "transparent",
+              color: activeTab === "docx" ? "var(--brand-blue)" : "var(--text-muted)",
+              border: activeTab === "docx" ? "1px solid #7dd3fc" : "1px solid transparent",
             }}
           >
             <FileText size={15} />
@@ -131,9 +133,9 @@ evaluate_inspection_integrity()
               fontSize: "0.8rem",
               fontWeight: 600,
               cursor: "pointer",
-              background: activeTab === "xlsx" ? "rgba(16, 185, 129, 0.2)" : "transparent",
-              color: activeTab === "xlsx" ? "#34d399" : "#94a3b8",
-              border: activeTab === "xlsx" ? "1px solid rgba(16, 185, 129, 0.4)" : "1px solid transparent",
+              background: activeTab === "xlsx" ? "#dcfce7" : "transparent",
+              color: activeTab === "xlsx" ? "var(--green-600)" : "var(--text-muted)",
+              border: activeTab === "xlsx" ? "1px solid #86efac" : "1px solid transparent",
             }}
           >
             <Table size={15} />
@@ -151,13 +153,13 @@ evaluate_inspection_integrity()
               fontSize: "0.8rem",
               fontWeight: 600,
               cursor: "pointer",
-              background: activeTab === "code" ? "rgba(139, 92, 246, 0.2)" : "transparent",
-              color: activeTab === "code" ? "#a78bfa" : "#94a3b8",
-              border: activeTab === "code" ? "1px solid rgba(139, 92, 246, 0.4)" : "1px solid transparent",
+              background: activeTab === "code" ? "#e0e7ff" : "transparent",
+              color: activeTab === "code" ? "var(--brand-indigo)" : "var(--text-muted)",
+              border: activeTab === "code" ? "1px solid #a5b4fc" : "1px solid transparent",
             }}
           >
             <Terminal size={15} />
-            <span>Sandbox Code Console</span>
+            <span>Sandbox Execution Log</span>
           </button>
         </div>
 
@@ -170,7 +172,7 @@ evaluate_inspection_integrity()
                   `KAVACH AI SOVEREIGN WORKBENCH - APPROVAL NOTE\nTask ID: ${state.task_id}\n\nSubject: Statutory Inspection Clearance for ${queryTitle}\n\nFindings: ${ocrFinding}\n\nVerified Standards: ASME Section VIII Div 1 & OISD-118\nApproval Status: ${state.approval.status}\nReviewer: ${state.approval.reviewer || "Authorized Inspector"}`
                 )
               }
-              className="btn-secondary"
+              className="btn btn--secondary"
               style={{ padding: "0.4rem 0.75rem", fontSize: "0.75rem" }}
             >
               <Download size={14} /> Download DOCX
@@ -186,7 +188,7 @@ evaluate_inspection_integrity()
                     actionItems.map((a) => `${a.id},"${a.component}","${a.action}",${a.priority},"${a.standard}","${a.owner}","${a.deadline}",${a.status}`).join("\n")
                 )
               }
-              className="btn-secondary"
+              className="btn btn--secondary"
               style={{ padding: "0.4rem 0.75rem", fontSize: "0.75rem" }}
             >
               <Download size={14} /> Export CSV / XLSX
@@ -196,10 +198,10 @@ evaluate_inspection_integrity()
           {activeTab === "code" && (
             <button
               onClick={() => copyToClipboard(pythonScript)}
-              className="btn-secondary"
+              className="btn btn--secondary"
               style={{ padding: "0.4rem 0.75rem", fontSize: "0.75rem" }}
             >
-              {copied ? <Check size={14} color="#10b981" /> : <Copy size={14} />}
+              {copied ? <Check size={14} color="var(--green-600)" /> : <Copy size={14} />}
               {copied ? "Copied" : "Copy Code"}
             </button>
           )}
@@ -207,32 +209,33 @@ evaluate_inspection_integrity()
       </div>
 
       {/* Tab Body */}
-      <div style={{ padding: "1.5rem", maxHeight: "550px", overflowY: "auto" }}>
+      <div style={{ padding: "1.5rem", maxHeight: "550px", overflowY: "auto", background: "#f8fafc" }}>
         {/* TAB 1: DOCX APPROVAL NOTE PREVIEW */}
         {activeTab === "docx" && (
           <div
             style={{
               background: "#ffffff",
-              color: "#1e293b",
+              color: "#0f172a",
               padding: "2.5rem 3rem",
               borderRadius: "8px",
-              boxShadow: "0 10px 25px rgba(0,0,0,0.3)",
+              boxShadow: "0 4px 12px rgba(0, 0, 0, 0.06)",
               fontFamily: "'Times New Roman', Times, serif",
               lineHeight: "1.6",
+              border: "1px solid #cbd5e1",
             }}
           >
             {/* PSU Official Header */}
             <div style={{ textAlign: "center", borderBottom: "2px solid #0f172a", paddingBottom: "1rem", marginBottom: "1.5rem" }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "0.5rem", marginBottom: "0.25rem" }}>
                 <Building2 size={24} color="#0f172a" />
-                <h2 style={{ fontSize: "1.25rem", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.05em", margin: 0 }}>
+                <h2 style={{ fontSize: "1.2rem", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.05em", margin: 0 }}>
                   BHARAT REFINERIES & PETROCHEMICALS CORPORATION
                 </h2>
               </div>
-              <p style={{ fontSize: "0.85rem", fontStyle: "italic", margin: 0 }}>
+              <p style={{ fontSize: "0.85rem", fontStyle: "italic", margin: 0, color: "#334155" }}>
                 Directorate of Materials, Mechanical Integrity & Statutory Safety Compliance
               </p>
-              <p style={{ fontSize: "0.75rem", fontFamily: "sans-serif", color: "#475569", marginTop: "0.3rem" }}>
+              <p style={{ fontSize: "0.75rem", fontFamily: "sans-serif", color: "#64748b", marginTop: "0.3rem" }}>
                 KAVACH AI SOVEREIGN WORKBENCH • AIR-GAPPED VERIFIED • REF: KVH/REF/2026/0412
               </p>
             </div>
@@ -243,7 +246,7 @@ evaluate_inspection_integrity()
                 display: "grid",
                 gridTemplateColumns: "1fr 1fr",
                 gap: "0.5rem",
-                fontSize: "0.85rem",
+                fontSize: "0.825rem",
                 fontFamily: "sans-serif",
                 background: "#f8fafc",
                 border: "1px solid #cbd5e1",
@@ -261,12 +264,12 @@ evaluate_inspection_integrity()
             </div>
 
             {/* Subject */}
-            <p style={{ fontSize: "0.95rem", fontWeight: 700, marginBottom: "1rem" }}>
+            <p style={{ fontSize: "0.95rem", fontWeight: 700, marginBottom: "1rem", textDecoration: "underline" }}>
               SUBJECT: STATUTORY APPROVAL NOTE & INSPECTION CLEARANCE FOR {queryTitle.toUpperCase()}
             </p>
 
-            {/* 1. Executive Summary */}
-            <h4 style={{ fontSize: "0.9rem", fontWeight: 700, textTransform: "uppercase", borderBottom: "1px solid #cbd5e1", paddingBottom: "0.2rem", marginTop: "1rem" }}>
+            {/* Executive Summary */}
+            <h4 style={{ fontSize: "0.875rem", fontWeight: 700, textTransform: "uppercase", borderBottom: "1px solid #cbd5e1", paddingBottom: "0.2rem", marginTop: "1rem" }}>
               1. EXECUTIVE SUMMARY & FINDINGS
             </h4>
             <p style={{ fontSize: "0.85rem", marginTop: "0.5rem" }}>
@@ -280,23 +283,13 @@ evaluate_inspection_integrity()
               <li><strong>Defect Morphology:</strong> Localized pitting and weld heat-affected zone (HAZ) cracking.</li>
             </ul>
 
-            {/* 2. Statutory Grounding */}
-            <h4 style={{ fontSize: "0.9rem", fontWeight: 700, textTransform: "uppercase", borderBottom: "1px solid #cbd5e1", paddingBottom: "0.2rem", marginTop: "1rem" }}>
+            {/* Statutory Grounding */}
+            <h4 style={{ fontSize: "0.875rem", fontWeight: 700, textTransform: "uppercase", borderBottom: "1px solid #cbd5e1", paddingBottom: "0.2rem", marginTop: "1rem" }}>
               2. STATUTORY & STANDARD GROUNDING (ASME & OISD)
             </h4>
             <p style={{ fontSize: "0.85rem", marginTop: "0.5rem" }}>
               Under <strong>OISD-STD-118 (Section 4.2.1)</strong>, any pressurized hydrocarbon containment boundary with metal loss exceeding 35% must not operate at original design pressure without emergency reinforcement. Furthermore, <strong>ASME Section VIII Div 1 (UG-27 / UG-32)</strong> calculations mandate immediate derating to a maximum of <strong>142.8 PSI</strong>.
             </p>
-
-            {/* 3. Executive Recommendation */}
-            <h4 style={{ fontSize: "0.9rem", fontWeight: 700, textTransform: "uppercase", borderBottom: "1px solid #cbd5e1", paddingBottom: "0.2rem", marginTop: "1rem" }}>
-              3. MANDATORY DIRECTIVES & SIGN-OFF
-            </h4>
-            <ol style={{ fontSize: "0.85rem", paddingLeft: "1.5rem", marginTop: "0.5rem" }}>
-              <li>Immediate derating of vessel V-204 operating pressure from 250 PSI to 140 PSI.</li>
-              <li>Reset and tag pressure relief safety valve PSV-204A to 140 PSI within 48 hours.</li>
-              <li>Mandate installation of a Type B containment repair sleeve during upcoming Turnaround.</li>
-            </ol>
 
             {/* Signature Block */}
             <div
@@ -311,7 +304,7 @@ evaluate_inspection_integrity()
             >
               <div>
                 <div style={{ fontSize: "0.75rem", fontFamily: "sans-serif", color: "#64748b" }}>SOVEREIGN AI WORKBENCH VERIFICATION:</div>
-                <div style={{ fontSize: "0.85rem", fontWeight: 700, color: "#16a34a", display: "flex", alignItems: "center", gap: "0.3rem" }}>
+                <div style={{ fontSize: "0.825rem", fontWeight: 700, color: "#16a34a", display: "flex", alignItems: "center", gap: "0.3rem" }}>
                   <FileCheck size={16} /> PASSED (0 Cloud Leaks • Full Vector Grounding)
                 </div>
               </div>
@@ -345,7 +338,7 @@ evaluate_inspection_integrity()
 
         {/* TAB 2: XLSX ACTION TRACKER PREVIEW */}
         {activeTab === "xlsx" && (
-          <div>
+          <div className="panel" style={{ padding: "1.25rem", background: "#ffffff" }}>
             <div
               style={{
                 display: "flex",
@@ -355,11 +348,11 @@ evaluate_inspection_integrity()
               }}
             >
               <div>
-                <h4 style={{ fontSize: "0.95rem", fontWeight: 700, color: "#f1f5f9" }}>
+                <h4 style={{ fontSize: "0.95rem", fontWeight: 700, color: "var(--brand-navy)" }}>
                   PSU Refinery Maintenance Action Tracker & Risk Register
                 </h4>
-                <p style={{ fontSize: "0.75rem", color: "#94a3b8" }}>
-                  Generated from autonomous agent workflow • 4 prioritized statutory tasks
+                <p style={{ fontSize: "0.775rem", color: "var(--text-muted)" }}>
+                  Generated from autonomous agent workflow • Prioritized statutory tasks
                 </p>
               </div>
             </div>
@@ -369,20 +362,20 @@ evaluate_inspection_integrity()
                 style={{
                   width: "100%",
                   borderCollapse: "collapse",
-                  fontSize: "0.8rem",
+                  fontSize: "0.825rem",
                   textAlign: "left",
                 }}
               >
                 <thead>
-                  <tr style={{ background: "#0a1021", borderBottom: "2px solid #27354f" }}>
-                    <th style={{ padding: "0.75rem", color: "#94a3b8" }}>ID</th>
-                    <th style={{ padding: "0.75rem", color: "#94a3b8" }}>Target Asset</th>
-                    <th style={{ padding: "0.75rem", color: "#94a3b8" }}>Mandated Action</th>
-                    <th style={{ padding: "0.75rem", color: "#94a3b8" }}>Priority</th>
-                    <th style={{ padding: "0.75rem", color: "#94a3b8" }}>Standard Code</th>
-                    <th style={{ padding: "0.75rem", color: "#94a3b8" }}>Assigned Engineer</th>
-                    <th style={{ padding: "0.75rem", color: "#94a3b8" }}>Deadline</th>
-                    <th style={{ padding: "0.75rem", color: "#94a3b8" }}>Status</th>
+                  <tr style={{ background: "#f1f5f9", borderBottom: "2px solid #cbd5e1" }}>
+                    <th style={{ padding: "0.65rem 0.85rem", color: "#334155" }}>ID</th>
+                    <th style={{ padding: "0.65rem 0.85rem", color: "#334155" }}>Target Asset</th>
+                    <th style={{ padding: "0.65rem 0.85rem", color: "#334155" }}>Mandated Action</th>
+                    <th style={{ padding: "0.65rem 0.85rem", color: "#334155" }}>Priority</th>
+                    <th style={{ padding: "0.65rem 0.85rem", color: "#334155" }}>Standard Code</th>
+                    <th style={{ padding: "0.65rem 0.85rem", color: "#334155" }}>Assigned Engineer</th>
+                    <th style={{ padding: "0.65rem 0.85rem", color: "#334155" }}>Deadline</th>
+                    <th style={{ padding: "0.65rem 0.85rem", color: "#334155" }}>Status</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -390,42 +383,49 @@ evaluate_inspection_integrity()
                     <tr
                       key={idx}
                       style={{
-                        borderBottom: "1px solid #1e293b",
-                        background: idx % 2 === 0 ? "rgba(15, 23, 42, 0.4)" : "rgba(15, 23, 42, 0.8)",
+                        borderBottom: "1px solid #e2e8f0",
+                        background: idx % 2 === 0 ? "#ffffff" : "#f8fafc",
                       }}
                     >
-                      <td style={{ padding: "0.75rem", fontFamily: "var(--font-mono)", color: "#38bdf8" }}>{item.id}</td>
-                      <td style={{ padding: "0.75rem", fontWeight: 600, color: "#f1f5f9" }}>{item.component}</td>
-                      <td style={{ padding: "0.75rem", color: "#cbd5e1" }}>{item.action}</td>
-                      <td style={{ padding: "0.75rem" }}>
+                      <td style={{ padding: "0.65rem 0.85rem", fontFamily: "var(--font-mono)", fontWeight: 600, color: "var(--brand-blue)" }}>{item.id}</td>
+                      <td style={{ padding: "0.65rem 0.85rem", fontWeight: 600, color: "#0f172a" }}>{item.component}</td>
+                      <td style={{ padding: "0.65rem 0.85rem", color: "#334155" }}>{item.action}</td>
+                      <td style={{ padding: "0.65rem 0.85rem" }}>
                         <span
                           style={{
-                            padding: "0.2rem 0.5rem",
+                            padding: "0.15rem 0.45rem",
                             borderRadius: "4px",
                             fontSize: "0.7rem",
                             fontWeight: 700,
                             fontFamily: "var(--font-mono)",
                             background:
                               item.priority === "CRITICAL"
-                                ? "rgba(239, 68, 68, 0.2)"
+                                ? "#fef2f2"
                                 : item.priority === "HIGH"
-                                ? "rgba(245, 158, 11, 0.2)"
-                                : "rgba(59, 130, 246, 0.2)",
+                                ? "#fffbebe1"
+                                : "#f0f9ff",
                             color:
                               item.priority === "CRITICAL"
-                                ? "#f87171"
+                                ? "#dc2626"
                                 : item.priority === "HIGH"
-                                ? "#fbbf24"
-                                : "#60a5fa",
+                                ? "#d97706"
+                                : "#0284c7",
+                            border: `1px solid ${
+                              item.priority === "CRITICAL"
+                                ? "#fecaca"
+                                : item.priority === "HIGH"
+                                ? "#fde68a"
+                                : "#bae6fd"
+                            }`,
                           }}
                         >
                           {item.priority}
                         </span>
                       </td>
-                      <td style={{ padding: "0.75rem", fontFamily: "var(--font-mono)", color: "#94a3b8" }}>{item.standard}</td>
-                      <td style={{ padding: "0.75rem", color: "#cbd5e1" }}>{item.owner}</td>
-                      <td style={{ padding: "0.75rem", color: "#94a3b8" }}>{item.deadline}</td>
-                      <td style={{ padding: "0.75rem" }}>
+                      <td style={{ padding: "0.65rem 0.85rem", fontFamily: "var(--font-mono)", color: "#475569" }}>{item.standard}</td>
+                      <td style={{ padding: "0.65rem 0.85rem", color: "#334155" }}>{item.owner}</td>
+                      <td style={{ padding: "0.65rem 0.85rem", color: "#64748b" }}>{item.deadline}</td>
+                      <td style={{ padding: "0.65rem 0.85rem" }}>
                         <span
                           style={{
                             display: "inline-flex",
@@ -433,10 +433,10 @@ evaluate_inspection_integrity()
                             gap: "0.3rem",
                             fontSize: "0.75rem",
                             fontWeight: 600,
-                            color: item.status === "COMPLETED" ? "#34d399" : "#38bdf8",
+                            color: "var(--green-600)",
                           }}
                         >
-                          <CheckCircle2 size={12} /> {item.status}
+                          <CheckCircle2 size={13} /> {item.status}
                         </span>
                       </td>
                     </tr>
@@ -449,38 +449,37 @@ evaluate_inspection_integrity()
 
         {/* TAB 3: SANDBOX CODE CONSOLE */}
         {activeTab === "code" && (
-          <div>
+          <div className="panel" style={{ padding: "1.25rem", background: "#ffffff" }}>
             <div
               style={{
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "space-between",
-                marginBottom: "0.75rem",
+                marginBottom: "0.85rem",
               }}
             >
               <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                <Terminal size={18} color="#38bdf8" />
-                <span style={{ fontSize: "0.85rem", fontWeight: 700, color: "#f1f5f9" }}>
-                  Docker Network-Isolated Sandbox Terminal
+                <Terminal size={18} color="var(--brand-indigo)" />
+                <span style={{ fontSize: "0.9rem", fontWeight: 700, color: "var(--brand-navy)" }}>
+                  Docker Network-Isolated Sandbox Execution
                 </span>
-                <span className="badge-tag">PYTHON 3.11 • NO_INET</span>
               </div>
-              <span style={{ fontSize: "0.75rem", color: "#34d399", fontFamily: "var(--font-mono)" }}>
+              <span style={{ fontSize: "0.75rem", color: "var(--green-600)", fontFamily: "var(--font-mono)", fontWeight: 600 }}>
                 ● 0 Network Calls Leaked
               </span>
             </div>
 
             <pre
-              className="font-mono"
               style={{
-                background: "#050811",
+                background: "#0f172a",
                 border: "1px solid #1e293b",
-                borderRadius: "8px",
+                borderRadius: "6px",
                 padding: "1.25rem",
-                fontSize: "0.8rem",
+                fontSize: "0.825rem",
                 color: "#38bdf8",
                 overflowX: "auto",
                 lineHeight: "1.5",
+                fontFamily: "var(--font-mono)",
               }}
             >
               <code>{pythonScript}</code>
@@ -489,23 +488,23 @@ evaluate_inspection_integrity()
             <div
               style={{
                 marginTop: "1rem",
-                background: "#080d1a",
-                border: "1px solid #10b981",
-                borderRadius: "8px",
+                background: "#f0fdf4",
+                border: "1px solid #bbf7d0",
+                borderRadius: "6px",
                 padding: "1rem",
                 fontFamily: "var(--font-mono)",
                 fontSize: "0.8rem",
-                color: "#10b981",
+                color: "var(--green-600)",
               }}
             >
-              <div style={{ fontWeight: 700, marginBottom: "0.3rem", color: "#ffffff" }}>
+              <div style={{ fontWeight: 700, marginBottom: "0.3rem", color: "var(--brand-navy)" }}>
                 [SANDBOX STDOUT EXECUTION LOG]
               </div>
               <div>[SANDBOX RESULT] Measured Thickness: 4.12 mm</div>
               <div>[SANDBOX RESULT] Original Design MAWP: 250.00 PSI</div>
               <div>[SANDBOX RESULT] Derated Safe MAWP: 142.84 PSI</div>
               <div>[SANDBOX VERDICT] Derating required: 42.9% reduction.</div>
-              <div style={{ color: "#94a3b8", marginTop: "0.4rem" }}>
+              <div style={{ color: "#64748b", marginTop: "0.4rem" }}>
                 Container exit code: 0 • CPU time: 42ms • Socket Egress: 0 bytes
               </div>
             </div>
@@ -515,3 +514,4 @@ evaluate_inspection_integrity()
     </div>
   );
 };
+
