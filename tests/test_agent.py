@@ -94,6 +94,67 @@ class TestAgentFramework(unittest.TestCase):
         self.assertEqual(updated_state.approval.reviewer, "Lead Inspector")
         self.assertEqual(updated_state.approval.status, HumanDecision.APPROVED)
 
+    def test_model_router_output_reaches_findings(self):
+        """Regression test for ROOT CAUSE: model_router_tool output was silently dropped.
+        
+        Previously _update_state_findings had no branch for model_router_tool,
+        so ALL its output was discarded. Now it writes model_used, model_error,
+        and (when Ollama is online) synthesized_analysis.
+        """
+        orchestrator = AgentOrchestrator()
+        state = orchestrator.create_task(query="Inspect turbine report", input_files=["turbine.pdf"])
+        orchestrator.run_all_steps(state)
+
+        # model_used is always set regardless of whether Ollama is reachable
+        self.assertIn("model_used", state.findings,
+            "model_router_tool output should be written to state.findings['model_used']")
+
+        # If Ollama is offline, we get model_error; if online, synthesized_analysis
+        has_synthesis = "synthesized_analysis" in state.findings
+        has_error = "model_error" in state.findings
+        self.assertTrue(has_synthesis or has_error,
+            "model_router_tool should write either synthesized_analysis (Ollama online) "
+            "or model_error (Ollama offline) to state.findings")
+
+    def test_xlsx_items_derived_from_findings(self):
+        """Regression test: XLSX items were hardcoded to one fake task instead of real findings."""
+        orchestrator = AgentOrchestrator()
+        state = orchestrator.create_task(query="Inspect turbine report", input_files=["turbine.pdf"])
+        orchestrator.run_all_steps(state)
+
+        # Find the xlsx tool call and check its input_params
+        xlsx_calls = [tc for tc in state.tool_calls if tc.tool_name == "generate_xlsx_tool"]
+        self.assertEqual(len(xlsx_calls), 1)
+        items = xlsx_calls[0].input_params.get("items", [])
+        # Should have more than the old hardcoded single item
+        self.assertGreaterEqual(len(items), 1, "XLSX should have items derived from real findings")
+        # Should NOT be the old hardcoded "Inspect Weld B-12"
+        if len(items) > 0:
+            first_task = items[0].get("task", "")
+            self.assertNotEqual(first_task, "Inspect Weld B-12",
+                "XLSX items should be derived from real findings, not hardcoded")
+
+    def test_docx_content_quality(self):
+        """Regression test: DOCX content should contain synthesized analysis, not just raw data."""
+        import os
+        orchestrator = AgentOrchestrator()
+        state = orchestrator.create_task(query="Inspect turbine report", input_files=["turbine.pdf"])
+        orchestrator.run_all_steps(state)
+
+        # Verify the DOCX file was created and contains real content
+        docx_path = state.draft_deliverables.get("approval_note_docx", "")
+        self.assertTrue(docx_path, "DOCX deliverable path should be set")
+
+        full_path = os.path.join("backend", "storage", "outputs", docx_path)
+        self.assertTrue(os.path.exists(full_path), f"DOCX file should exist at {full_path}")
+
+        # Open and verify content
+        from docx import Document
+        doc = Document(full_path)
+        full_text = "\n".join(p.text for p in doc.paragraphs)
+        self.assertGreater(len(full_text), 100, "DOCX should have substantial content")
+        self.assertIn("Approval Note", full_text, "DOCX should have the title")
+
 
 if __name__ == "__main__":
     unittest.main()

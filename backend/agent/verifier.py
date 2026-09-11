@@ -23,6 +23,10 @@ class SelfVerifier:
         feedback_messages: List[str] = []
 
         # 1. Zero External Calls Security Audit
+        # NOTE: This is a DEFENSE-IN-DEPTH supplement, NOT the primary sovereignty
+        # proof. The real live network monitor is psutil-based in system_router.py
+        # (/api/system/network). This check scans tool call data for known cloud
+        # domains as an additional safety net — it cannot detect novel endpoints.
         cloud_leaks = [
             tc for tc in state.tool_calls
             if any(domain in str(tc.input_params).lower() or domain in str(tc.output).lower() for domain in ["openai.com", "anthropic.com", "api.cloud"])

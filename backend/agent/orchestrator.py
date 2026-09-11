@@ -4,7 +4,7 @@ State Machine Agent Orchestrator for KAVACH AI Workbench.
 
 import uuid
 import logging
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from backend.agent.state import (
     AgentState,
     AgentTrace,
@@ -128,7 +128,7 @@ class AgentOrchestrator:
             self.execute_next_step(state)
         return state
 
-    def _build_tool_params(self, tool_name: str, state: AgentState) -> Dict[str, any]:
+    def _build_tool_params(self, tool_name: str, state: AgentState) -> Dict[str, Any]:
         first_file = state.input_files[0] if state.input_files else "inspection_report.pdf"
 
         if tool_name == "ocr_pdf_tool":
@@ -140,14 +140,67 @@ class AgentOrchestrator:
         elif tool_name == "sandbox_code_tool":
             return {"code": "# Auto-generated verification script\nprint('Zero cloud calls confirmed.')"}
         elif tool_name == "generate_docx_tool":
-            return {"title": f"Approval Note: {state.user_query}", "findings": state.findings, "evidence": state.retrieved_evidence, "task_id": state.task_id, "output_path": f"{state.task_id}_Approval_Note.docx"}
+            return {
+                "title": f"Approval Note: {state.user_query}",
+                "findings": state.findings,
+                "evidence": state.retrieved_evidence,
+                "task_id": state.task_id,
+                "output_path": f"{state.task_id}_Approval_Note.docx",
+            }
         elif tool_name == "generate_xlsx_tool":
-            return {"items": [{"task": "Inspect Weld B-12", "priority": "HIGH"}], "output_path": f"{state.task_id}_Action_Tracker.xlsx"}
+            # Derive real action items from structured findings or findings keys
+            items = []
+            structured = state.findings.get("structured_findings", [])
+            if structured and isinstance(structured, list):
+                for f in structured:
+                    if isinstance(f, dict):
+                        items.append({
+                            "task": f.get("description", "Inspection action required"),
+                            "priority": f.get("severity", "MEDIUM"),
+                            "status": "OPEN",
+                        })
+            if not items:
+                # Fallback: create items from top-level findings keys
+                for key, value in state.findings.items():
+                    if key in ("structured_findings", "synthesized_analysis"):
+                        continue
+                    items.append({
+                        "task": f"{key.replace('_', ' ').title()}: {str(value)[:100]}",
+                        "priority": "MEDIUM",
+                        "status": "OPEN",
+                    })
+            if not items:
+                items = [{"task": state.user_query[:100], "priority": "MEDIUM", "status": "OPEN"}]
+            return {"items": items, "output_path": f"{state.task_id}_Action_Tracker.xlsx"}
         elif tool_name == "model_router_tool":
-            return {"task_type": "reasoning", "prompt": state.user_query}
+            # Build a rich prompt that includes all prior tool outputs for synthesis
+            prompt_parts = [f"User Query: {state.user_query}"]
+            if state.findings.get("ocr_extracted_text"):
+                prompt_parts.append(f"\n--- OCR Extracted Text ---\n{state.findings['ocr_extracted_text'][:2000]}")
+            if state.findings.get("vision_analysis"):
+                prompt_parts.append(f"\n--- Visual Inspection Analysis ---\n{state.findings['vision_analysis'][:2000]}")
+            if state.retrieved_evidence:
+                evidence_text = "\n".join(
+                    f"[{ev.source_doc}, p.{ev.page_num}] {ev.snippet}"
+                    for ev in state.retrieved_evidence[:5]
+                )
+                prompt_parts.append(f"\n--- SOP Evidence Citations ---\n{evidence_text}")
+            if state.findings.get("structured_findings"):
+                import json as _json
+                try:
+                    sf_text = _json.dumps(state.findings["structured_findings"][:5], indent=2, default=str)
+                except Exception:
+                    sf_text = str(state.findings["structured_findings"])[:1000]
+                prompt_parts.append(f"\n--- Structured Findings ---\n{sf_text}")
+            prompt_parts.append(
+                "\nBased on the above inspection data, SOP evidence, and visual analysis, "
+                "synthesize a comprehensive risk assessment and approval recommendation. "
+                "Include specific findings, severity levels, and recommended actions."
+            )
+            return {"task_type": "reasoning", "prompt": "\n".join(prompt_parts)}
         return {}
 
-    def _update_state_findings(self, state: AgentState, tool_name: str, output: any):
+    def _update_state_findings(self, state: AgentState, tool_name: str, output: Any):
         if not isinstance(output, dict):
             return
 
@@ -172,6 +225,19 @@ class AgentOrchestrator:
                         confidence_score=res.get("score", 1.0),
                     )
                 )
+        elif tool_name == "model_router_tool":
+            # ROOT CAUSE FIX: Previously missing — LLM synthesis was silently dropped
+            response_text = output.get("response", "")
+            if response_text:
+                state.findings["synthesized_analysis"] = response_text
+            state.findings["model_used"] = output.get("selected_model", "unknown")
+            if output.get("error"):
+                state.findings["model_error"] = output["error"]
+        elif tool_name == "sandbox_code_tool":
+            state.findings["sandbox_stdout"] = output.get("stdout", "")
+            state.findings["sandbox_stderr"] = output.get("stderr", "")
+            state.findings["sandbox_exit_code"] = output.get("exit_code", -1)
+            state.findings["sandbox_mode"] = output.get("sandbox_mode", "unknown")
         elif tool_name == "generate_docx_tool":
             state.draft_deliverables["approval_note_docx"] = output.get("output_path", "")
         elif tool_name == "generate_xlsx_tool":

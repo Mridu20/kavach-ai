@@ -408,11 +408,13 @@ const ResultsPhase: React.FC<{
     ([, v]) => v !== null && v !== undefined && v !== ""
   );
 
-  let activeModel = "Llama-3.3-70B-Instruct";
+  // Derive model name from actual state findings
+  const modelUsed = state.findings?.model_used || "Qwen2.5-7B-Instruct (Q4_K_M)";
+  let activeModel = modelUsed;
   if (state.category === "SANDBOX_CODE_EXECUTION") {
-    activeModel = "Qwen-2.5-Coder-32B";
+    activeModel = state.findings?.model_used || "Qwen2.5-Coder-7B-Instruct (Q4_K_M)";
   } else if (state.category === "DOCUMENT_INSPECTION") {
-    activeModel = "LLaVA-v1.6-34B-Vision";
+    activeModel = state.findings?.model_used || "Qwen2.5-VL-7B (Q4_K_M)";
   }
 
   return (
@@ -480,19 +482,19 @@ const ResultsPhase: React.FC<{
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "1rem" }}>
         <div className="panel" style={{ padding: "1rem 1.25rem", background: "#ffffff" }}>
           <div style={{ fontSize: "0.75rem", fontWeight: 600, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "0.25rem" }}>
-            Statutory Status
+            Verification Status
           </div>
-          <div style={{ fontSize: "1rem", fontWeight: 700, color: "var(--green-600)" }}>
-            PASSED (ASME Sec VIII)
+          <div style={{ fontSize: "1rem", fontWeight: 700, color: state.verification?.verified ? "var(--green-600)" : "var(--amber-500)" }}>
+            {state.verification?.verified ? "VERIFIED" : "PENDING"}
           </div>
         </div>
 
         <div className="panel" style={{ padding: "1rem 1.25rem", background: "#ffffff" }}>
           <div style={{ fontSize: "0.75rem", fontWeight: 600, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "0.25rem" }}>
-            Vector Grounding
+            SOP Evidence Citations
           </div>
           <div style={{ fontSize: "1rem", fontWeight: 700, color: "var(--brand-navy)" }}>
-            99.8% Grounded
+            {state.retrieved_evidence?.length ?? 0} Citations
           </div>
         </div>
 
@@ -500,8 +502,8 @@ const ResultsPhase: React.FC<{
           <div style={{ fontSize: "0.75rem", fontWeight: 600, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "0.25rem" }}>
             Network Security
           </div>
-          <div style={{ fontSize: "1rem", fontWeight: 700, color: "var(--brand-blue)" }}>
-            0 Outbound Sockets
+          <div style={{ fontSize: "1rem", fontWeight: 700, color: state.verification?.zero_external_calls ? "var(--green-600)" : "var(--red-500)" }}>
+            {state.verification?.zero_external_calls ? "0 External Calls" : "External Calls Detected"}
           </div>
         </div>
 
@@ -509,8 +511,8 @@ const ResultsPhase: React.FC<{
           <div style={{ fontSize: "0.75rem", fontWeight: 600, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "0.25rem" }}>
             Governance Gate
           </div>
-          <div style={{ fontSize: "1rem", fontWeight: 700, color: "var(--amber-500)" }}>
-            Awaiting Approval
+          <div style={{ fontSize: "1rem", fontWeight: 700, color: state.status === "COMPLETED" ? "var(--green-600)" : state.status === "REJECTED" ? "var(--red-500)" : "var(--amber-500)" }}>
+            {state.status === "COMPLETED" ? "Approved" : state.status === "REJECTED" ? "Rejected" : "Awaiting Approval"}
           </div>
         </div>
       </div>
@@ -608,10 +610,15 @@ export const ScanWorkbench: React.FC<Props> = ({
 }) => {
   const [files, setFiles] = useState<File[]>([]);
   const [query, setQuery] = useState("");
-  const [isUploading] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
 
-  const handleSubmit = () => {
-    onRunTask(query, files);
+  const handleSubmit = async () => {
+    setIsUploading(true);
+    try {
+      await onRunTask(query, files);
+    } finally {
+      setIsUploading(false);
+    }
   };
 
   const handleReset = () => {

@@ -56,8 +56,8 @@ class BaseAgentTool(ABC):
         pass
 
 
-class MockOCRTool(BaseAgentTool):
-    """Unchanged - this was already real in your codebase."""
+class OCRTool(BaseAgentTool):
+    """Multi-engine OCR: PyPDF fast-path, Tesseract, and Qwen2.5-VL VLM."""
     name = "ocr_pdf_tool"
     description = "Extract text, tables, and handwriting from scanned PDF documents locally."
     category = "document"
@@ -76,8 +76,8 @@ class MockOCRTool(BaseAgentTool):
         }
 
 
-class MockRAGSearchTool(BaseAgentTool):
-    """FIXED: no longer replaces a genuinely-empty result with fake SOP snippets."""
+class RAGSearchTool(BaseAgentTool):
+    """Sovereign local RAG: ChromaDB + nomic-embed-text, with demo fallback."""
     name = "rag_search_tool"
     description = "Search local SOPs, manuals, and correspondence using vector embeddings."
     category = "retrieval"
@@ -108,19 +108,21 @@ class MockRAGSearchTool(BaseAgentTool):
                     "page": 14,
                     "score": 0.92,
                     "snippet": "Section 4.2: Pressure vessel inspection must mandate immediate shutdown if corrosion exceeds 0.5mm.",
+                    "source": "DEMO_FALLBACK",
                 },
                 {
                     "doc_name": "Maintenance_Manual_Turbine_2025.pdf",
                     "page": 8,
                     "score": 0.87,
                     "snippet": "Section 2.1: Secondary containment seal replacement required every 12 months.",
+                    "source": "DEMO_FALLBACK",
                 },
             ],
         }
 
 
-class MockVisionTool(BaseAgentTool):
-    """Unchanged - this was already real in your codebase."""
+class VisionAnalysisTool(BaseAgentTool):
+    """Qwen2.5-VL based visual inspection analysis for defect recognition."""
     name = "vision_analysis_tool"
     description = "Analyze photographs and visual diagram components using local vision-language model."
     category = "vision"
@@ -137,7 +139,7 @@ class MockVisionTool(BaseAgentTool):
         }
 
 
-class MockSandboxCodeTool(BaseAgentTool):
+class SandboxCodeTool(BaseAgentTool):
     """
     Runs submitted code in a real Docker container (--network none) if Docker
     is available. Falls back to a restricted subprocess (clearly labeled as
@@ -248,48 +250,83 @@ class MockSandboxCodeTool(BaseAgentTool):
                 }
 
 
-class MockDocxGeneratorTool(BaseAgentTool):
-    """Generates a real .docx file via python-docx instead of returning fake metadata."""
+class DocxGeneratorTool(BaseAgentTool):
+    """Generates a real .docx approval note via python-docx with synthesized findings."""
     name = "generate_docx_tool"
     description = "Generate official Approval Note DOCX document from structured findings."
     category = "generator"
 
-    def run(self, title: str = "", findings: Optional[Dict[str, Any]] = None, output_path: str = "Approval_Note.docx", **kwargs) -> Dict[str, Any]:
+    def run(
+        self,
+        title: str = "",
+        findings: Optional[Dict[str, Any]] = None,
+        evidence: Optional[list] = None,
+        task_id: str = "",
+        output_path: str = "Approval_Note.docx",
+        **kwargs,
+    ) -> Dict[str, Any]:
         from docx import Document
-        from docx.shared import Pt
 
         findings = findings or {}
+        evidence = evidence or []
         doc = Document()
 
         doc.add_heading(title or "Sovereign Industrial Approval Note", level=1)
+        if task_id:
+            doc.add_paragraph(f"Task Reference: {task_id}")
 
         doc.add_heading("Executive Summary", level=2)
-        doc.add_paragraph(
-            "This approval note was generated locally by the KAVACH AI Sovereign "
-            "Workbench with zero external cloud calls, based on the findings below."
-        )
-
-        doc.add_heading("Findings", level=2)
-        if findings:
-            for key, value in findings.items():
-                p = doc.add_paragraph()
-                run = p.add_run(f"{key.replace('_', ' ').title()}: ")
-                run.bold = True
-                p.add_run(str(value))
+        # Prefer the synthesized LLM analysis if available
+        synthesized = findings.get("synthesized_analysis", "")
+        if synthesized:
+            doc.add_paragraph(synthesized)
         else:
+            doc.add_paragraph(
+                "This approval note was generated locally by the KAVACH AI Sovereign "
+                "Workbench with zero external cloud calls, based on the findings below."
+            )
+
+        doc.add_heading("Detailed Findings", level=2)
+        has_content = False
+        for key, value in findings.items():
+            if key in ("synthesized_analysis", "model_used", "model_error"):
+                continue  # already shown above or not user-facing
+            if value is None or value == "" or value == 0:
+                continue
+            has_content = True
+            p = doc.add_paragraph()
+            run = p.add_run(f"{key.replace('_', ' ').title()}: ")
+            run.bold = True
+            # Truncate very long values for readability
+            val_str = str(value)
+            if len(val_str) > 500:
+                val_str = val_str[:500] + "..."
+            p.add_run(val_str)
+        if not has_content:
             doc.add_paragraph("No findings were recorded for this task.")
 
-        evidence = kwargs.get("evidence", [])
         if evidence:
             doc.add_heading("SOP Evidence & Citations", level=2)
             for ev in evidence:
                 if hasattr(ev, 'source_doc'):
-                    doc.add_paragraph(f"[{ev.source_doc}, p.{ev.page_num}] {ev.snippet}")
+                    doc.add_paragraph(
+                        f"[{ev.source_doc}, p.{ev.page_num}] {ev.snippet}",
+                        style='List Bullet',
+                    )
                 elif isinstance(ev, dict):
-                    doc.add_paragraph(f"[{ev.get('source_doc', 'Unknown')}, p.{ev.get('page_num', 'N/A')}] {ev.get('snippet', '')}")
+                    doc.add_paragraph(
+                        f"[{ev.get('source_doc', 'Unknown')}, p.{ev.get('page_num', 'N/A')}] {ev.get('snippet', '')}",
+                        style='List Bullet',
+                    )
 
         doc.add_heading("Recommendation", level=2)
-        doc.add_paragraph("Findings above should be reviewed and actioned per applicable SOPs.")
+        if synthesized:
+            doc.add_paragraph(
+                "The synthesized analysis above incorporates all inspection data and "
+                "SOP evidence. Findings should be reviewed and actioned per applicable standards."
+            )
+        else:
+            doc.add_paragraph("Findings above should be reviewed and actioned per applicable SOPs.")
 
         doc.add_paragraph("\n\nSignature: ______________________     Date: ______________")
 
@@ -297,16 +334,20 @@ class MockDocxGeneratorTool(BaseAgentTool):
         full_path = os.path.join(OUTPUT_DIR, safe_name)
         doc.save(full_path)
 
+        sections = ["Header", "Executive Summary", "Detailed Findings", "Recommendation"]
+        if evidence:
+            sections.insert(3, "SOP Evidence & Citations")
+
         return {
-            "output_path": safe_name,  # relative name, for use with /api/agent/download/{filename}
+            "output_path": safe_name,
             "status": "CREATED",
             "file_size_kb": round(os.path.getsize(full_path) / 1024, 1),
-            "sections_generated": ["Header", "Executive Summary", "Findings", "Recommendation"],
+            "sections_generated": sections,
         }
 
 
-class MockXlsxGeneratorTool(BaseAgentTool):
-    """Generates a real .xlsx file via openpyxl instead of returning fake metadata."""
+class XlsxGeneratorTool(BaseAgentTool):
+    """Generates a real .xlsx action tracker via openpyxl from structured findings."""
     name = "generate_xlsx_tool"
     description = "Generate Action Tracker XLSX spreadsheet from inspection tasks."
     category = "generator"
@@ -344,8 +385,8 @@ class MockXlsxGeneratorTool(BaseAgentTool):
         }
 
 
-class MockModelRouterTool(BaseAgentTool):
-    """Now actually calls Ollama instead of returning a hardcoded string."""
+class ModelRouterTool(BaseAgentTool):
+    """Routes tasks to the appropriate local Ollama model based on task type."""
     name = "model_router_tool"
     description = "Route task to specialized local model (coding, vision, general reasoning)."
     category = "routing"
@@ -398,13 +439,13 @@ class ToolRegistry:
 
     def _register_defaults(self):
         defaults = [
-            MockOCRTool(),
-            MockRAGSearchTool(),
-            MockVisionTool(),
-            MockSandboxCodeTool(),
-            MockDocxGeneratorTool(),
-            MockXlsxGeneratorTool(),
-            MockModelRouterTool(),
+            OCRTool(),
+            RAGSearchTool(),
+            VisionAnalysisTool(),
+            SandboxCodeTool(),
+            DocxGeneratorTool(),
+            XlsxGeneratorTool(),
+            ModelRouterTool(),
         ]
         for tool in defaults:
             self.register_tool(tool)

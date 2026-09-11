@@ -64,7 +64,7 @@ export const NetworkMonitor: React.FC = () => {
         <div className="panel" style={{ padding: "1.25rem 1.5rem", background: "#ffffff" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", color: "var(--text-muted)", marginBottom: "0.4rem" }}>
             <Activity size={16} color="var(--brand-blue)" />
-            <span style={{ fontSize: "0.8rem", fontWeight: 600 }}>Active Socket Sockets</span>
+            <span style={{ fontSize: "0.8rem", fontWeight: 600 }}>Active Sockets</span>
           </div>
           <div style={{ fontSize: "1.75rem", fontWeight: 700, color: "var(--brand-navy)" }}>
             {stats?.total_connections ?? "—"}

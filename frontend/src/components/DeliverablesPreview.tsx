@@ -12,6 +12,7 @@ import {
   Check,
 } from "lucide-react";
 import { AgentState } from "../types/agent";
+import { getDeliverableDownloadUrl } from "../services/api";
 
 interface DeliverablesPreviewProps {
   state: AgentState;
@@ -24,6 +25,7 @@ export const DeliverablesPreview: React.FC<DeliverablesPreviewProps> = ({ state 
   // Dynamic Findings & Deliverable Data
   const queryTitle = state.user_query || "Industrial Inspection Audit";
   const ocrFinding = state.findings?.ocr_extracted_text || state.findings?.vision_analysis || "Inspected component findings processed cleanly.";
+  const synthesizedAnalysis = state.findings?.synthesized_analysis || "";
   const structuredFindings = state.findings?.structured_findings as Array<{ item_id?: string; description?: string; severity?: string; location?: string }> | undefined;
 
   const actionItems = structuredFindings && structuredFindings.length > 0
@@ -74,17 +76,6 @@ evaluate_inspection_integrity()
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const handleDownloadFile = (filename: string, content: string) => {
-    const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-  };
 
   return (
     <div className="panel" style={{ overflow: "hidden", background: "#ffffff" }}>
@@ -164,35 +155,26 @@ evaluate_inspection_integrity()
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-          {activeTab === "docx" && (
-            <button
-              onClick={() =>
-                handleDownloadFile(
-                  `KavachAI_Approval_Note_${state.task_id}.doc`,
-                  `KAVACH AI SOVEREIGN WORKBENCH - APPROVAL NOTE\nTask ID: ${state.task_id}\n\nSubject: Statutory Inspection Clearance for ${queryTitle}\n\nFindings: ${ocrFinding}\n\nVerified Standards: ASME Section VIII Div 1 & OISD-118\nApproval Status: ${state.approval.status}\nReviewer: ${state.approval.reviewer || "Authorized Inspector"}`
-                )
-              }
+          {activeTab === "docx" && state.draft_deliverables?.approval_note_docx && (
+            <a
+              href={getDeliverableDownloadUrl(state.draft_deliverables.approval_note_docx)}
+              download
               className="btn btn--secondary"
-              style={{ padding: "0.4rem 0.75rem", fontSize: "0.75rem" }}
+              style={{ padding: "0.4rem 0.75rem", fontSize: "0.75rem", textDecoration: "none" }}
             >
               <Download size={14} /> Download DOCX
-            </button>
+            </a>
           )}
 
-          {activeTab === "xlsx" && (
-            <button
-              onClick={() =>
-                handleDownloadFile(
-                  "KavachAI_Action_Tracker.csv",
-                  `Action_ID,Component,Action,Priority,Standard,Owner,Deadline,Status\n` +
-                    actionItems.map((a) => `${a.id},"${a.component}","${a.action}",${a.priority},"${a.standard}","${a.owner}","${a.deadline}",${a.status}`).join("\n")
-                )
-              }
+          {activeTab === "xlsx" && state.draft_deliverables?.action_tracker_xlsx && (
+            <a
+              href={getDeliverableDownloadUrl(state.draft_deliverables.action_tracker_xlsx)}
+              download
               className="btn btn--secondary"
-              style={{ padding: "0.4rem 0.75rem", fontSize: "0.75rem" }}
+              style={{ padding: "0.4rem 0.75rem", fontSize: "0.75rem", textDecoration: "none" }}
             >
-              <Download size={14} /> Export CSV / XLSX
-            </button>
+              <Download size={14} /> Download XLSX
+            </a>
           )}
 
           {activeTab === "code" && (
@@ -272,16 +254,31 @@ evaluate_inspection_integrity()
             <h4 style={{ fontSize: "0.875rem", fontWeight: 700, textTransform: "uppercase", borderBottom: "1px solid #cbd5e1", paddingBottom: "0.2rem", marginTop: "1rem" }}>
               1. EXECUTIVE SUMMARY & FINDINGS
             </h4>
-            <p style={{ fontSize: "0.85rem", marginTop: "0.5rem" }}>
-              A sovereign automated inspection audit was conducted by Kavach AI Workbench for task <strong>{state.task_id}</strong>.
-              Extracted finding summary: <em>"{ocrFinding}"</em>
-            </p>
-
-            <ul style={{ fontSize: "0.85rem", paddingLeft: "1.5rem", marginTop: "0.5rem" }}>
-              <li><strong>Original Nominal Wall Thickness:</strong> 8.00 mm (Design MAWP: 250.0 PSI)</li>
-              <li><strong>Measured Minimum Ultrasonic Thickness:</strong> 4.12 mm (Metal loss: <strong>48.5%</strong>)</li>
-              <li><strong>Defect Morphology:</strong> Localized pitting and weld heat-affected zone (HAZ) cracking.</li>
-            </ul>
+            {synthesizedAnalysis ? (
+              <p style={{ fontSize: "0.85rem", marginTop: "0.5rem", whiteSpace: "pre-wrap" }}>
+                {synthesizedAnalysis}
+              </p>
+            ) : (
+              <>
+                <p style={{ fontSize: "0.85rem", marginTop: "0.5rem" }}>
+                  A sovereign automated inspection audit was conducted by Kavach AI Workbench for task <strong>{state.task_id}</strong>.
+                  Extracted finding summary: <em>"{ocrFinding}"</em>
+                </p>
+                <ul style={{ fontSize: "0.85rem", paddingLeft: "1.5rem", marginTop: "0.5rem" }}>
+                  {structuredFindings && structuredFindings.length > 0 ? (
+                    structuredFindings.map((f, idx) => (
+                      <li key={idx}>
+                        <strong>{f.item_id || `Finding ${idx + 1}`}:</strong> {f.description}
+                        {f.severity && <> — Severity: <strong>{f.severity}</strong></>}
+                        {f.location && <> — Location: {f.location}</>}
+                      </li>
+                    ))
+                  ) : (
+                    <li>Findings extracted and processed by sovereign ingestion pipeline.</li>
+                  )}
+                </ul>
+              </>
+            )}
 
             {/* Statutory Grounding */}
             <h4 style={{ fontSize: "0.875rem", fontWeight: 700, textTransform: "uppercase", borderBottom: "1px solid #cbd5e1", paddingBottom: "0.2rem", marginTop: "1rem" }}>

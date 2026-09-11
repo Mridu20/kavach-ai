@@ -4,7 +4,7 @@ Human-in-the-Loop (HITL) Approval State Manager for KAVACH AI Workbench.
 
 from datetime import datetime, timezone
 import logging
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 from backend.agent.state import AgentState, HumanApprovalState, HumanDecision
 
 logger = logging.getLogger("kavach_agent.human_approval")
@@ -19,7 +19,7 @@ class HumanApprovalManager:
         decision: HumanDecision,
         reviewer: str = "Authorized Inspector",
         comments: Optional[str] = None,
-        modifications: Optional[Dict[str, any]] = None,
+        modifications: Optional[Dict[str, Any]] = None,
     ) -> AgentState:
 
         if state.status not in ["AWAITING_APPROVAL", "VERIFYING", "COMPLETED"]:
