@@ -53,6 +53,7 @@ backend/
     __init__.py
     agent_router.py
     rag_router.py
+    system_router.py
   rag/
     __init__.py
     store.py
@@ -86,7 +87,6 @@ frontend/
       NetworkMonitor.tsx
       ScanWorkbench.tsx
       VerificationBadge.tsx
-      WorkbenchCanvas.tsx
     services/
       api.ts
     types/
@@ -207,183 +207,6 @@ class HumanApprovalManager:
 
         state.trace.end_time = now_str
         return state
-</file>
-
-<file path="backend/agent/orchestrator.py">
-"""
-State Machine Agent Orchestrator for KAVACH AI Workbench.
-"""
-
-import uuid
-import logging
-from typing import Dict, List, Optional
-from backend.agent.state import (
-    AgentState,
-    AgentTrace,
-    EvidenceItem,
-    StepStatus,
-    TaskCategory,
-)
-from backend.agent.planner import AgentPlanner
-from backend.agent.tools_registry import ToolRegistry, default_tool_registry
-
-logger = logging.getLogger("kavach_agent.orchestrator")
-
-
-class AgentOrchestrator:
-    """Manages the full lifecycle of an Agent execution task state machine."""
-
-    def __init__(self, tool_registry: Optional[ToolRegistry] = None):
-        self.tool_registry = tool_registry or default_tool_registry
-        self._states: Dict[str, AgentState] = {}
-
-    def create_task(self, query: str, input_files: Optional[List[str]] = None, task_id: Optional[str] = None) -> AgentState:
-        if not task_id:
-            task_id = f"task_{uuid.uuid4().hex[:10]}"
-
-        files = input_files or []
-        state = AgentState(
-            task_id=task_id,
-            user_query=query,
-            input_files=files,
-            trace=AgentTrace(task_id=task_id),
-            status="INITIALIZED",
-        )
-
-        state.add_trace_event(
-            event_type="INITIALIZATION",
-            message=f"Initialized sovereign agent task '{task_id}'.",
-            payload={"query": query, "input_files": files},
-        )
-
-        # Classify and plan
-        category, steps = AgentPlanner.create_plan(state)
-        state.category = category
-        state.plan = steps
-        state.status = "PLANNED"
-
-        state.add_trace_event(
-            event_type="CLASSIFICATION",
-            message=f"Task classified as '{category.value}'.",
-            payload={"category": category.value},
-        )
-        state.add_trace_event(
-            event_type="PLANNING",
-            message=f"Generated execution plan with {len(steps)} steps.",
-            payload={"plan_steps": [s.title for s in steps]},
-        )
-
-        self._states[task_id] = state
-        return state
-
-    def get_task(self, task_id: str) -> Optional[AgentState]:
-        return self._states.get(task_id)
-
-    def execute_next_step(self, state: AgentState) -> AgentState:
-        """Executes the next pending plan step in the state machine."""
-        if state.current_step_index >= len(state.plan):
-            state.status = "VERIFYING"
-            return state
-
-        current_step = state.plan[state.current_step_index]
-        current_step.status = StepStatus.IN_PROGRESS
-        state.status = "EXECUTING"
-
-        state.add_trace_event(
-            event_type="TOOL_START",
-            message=f"Step {current_step.step_id}: Executing '{current_step.assigned_tool}' for '{current_step.title}'.",
-            payload={"step_id": current_step.step_id, "tool": current_step.assigned_tool},
-        )
-
-        # Prepare parameters based on tool and state context
-        params = self._build_tool_params(current_step.assigned_tool, state)
-
-        # Execute tool via registry with retry logic
-        call_record = self.tool_registry.execute_with_retry(
-            tool_name=current_step.assigned_tool,
-            step_id=current_step.step_id,
-            params=params,
-        )
-
-        state.tool_calls.append(call_record)
-        state.trace.total_tool_calls += 1
-
-        if call_record.success:
-            current_step.status = StepStatus.COMPLETED
-            current_step.result = call_record.output if isinstance(call_record.output, dict) else {"output": call_record.output}
-            self._update_state_findings(state, current_step.assigned_tool, call_record.output)
-
-            state.add_trace_event(
-                event_type="TOOL_END",
-                message=f"Step {current_step.step_id} completed successfully in {call_record.execution_time_ms}ms.",
-                payload={"step_id": current_step.step_id, "success": True},
-            )
-        else:
-            current_step.status = StepStatus.FAILED
-            current_step.error = call_record.error_message
-            state.add_trace_event(
-                event_type="ERROR",
-                message=f"Step {current_step.step_id} failed: {call_record.error_message}",
-                payload={"step_id": current_step.step_id, "error": call_record.error_message},
-            )
-
-        state.current_step_index += 1
-
-        if state.current_step_index >= len(state.plan):
-            state.status = "VERIFYING"
-
-        return state
-
-    def run_all_steps(self, state: AgentState) -> AgentState:
-        """Runs all remaining steps in the plan until complete or verifying stage."""
-        while state.current_step_index < len(state.plan) and state.status in ["PLANNED", "EXECUTING"]:
-            self.execute_next_step(state)
-        return state
-
-    def _build_tool_params(self, tool_name: str, state: AgentState) -> Dict[str, any]:
-        first_file = state.input_files[0] if state.input_files else "inspection_report.pdf"
-
-        if tool_name == "ocr_pdf_tool":
-            return {"file_path": first_file}
-        elif tool_name == "vision_analysis_tool":
-            return {"image_path": first_file, "prompt": "Identify defects and structural anomalies."}
-        elif tool_name == "rag_search_tool":
-            return {"query": state.user_query, "top_k": 3}
-        elif tool_name == "sandbox_code_tool":
-            return {"code": "# Auto-generated verification script\nprint('Zero cloud calls confirmed.')"}
-        elif tool_name == "generate_docx_tool":
-            return {"title": f"Approval Note: {state.user_query}", "findings": state.findings, "output_path": f"{state.task_id}_Approval_Note.docx"}
-        elif tool_name == "generate_xlsx_tool":
-            return {"items": [{"task": "Inspect Weld B-12", "priority": "HIGH"}], "output_path": f"{state.task_id}_Action_Tracker.xlsx"}
-        elif tool_name == "model_router_tool":
-            return {"task_type": "reasoning", "prompt": state.user_query}
-        return {}
-
-    def _update_state_findings(self, state: AgentState, tool_name: str, output: any):
-        if not isinstance(output, dict):
-            return
-
-        if tool_name == "ocr_pdf_tool":
-            state.findings["ocr_extracted_text"] = output.get("extracted_text", "")
-            state.findings["tables_found"] = output.get("tables_found", 0)
-        elif tool_name == "vision_analysis_tool":
-            state.findings["vision_analysis"] = output.get("analysis", "")
-            state.findings["confidence"] = output.get("confidence", 0.0)
-        elif tool_name == "rag_search_tool":
-            results = output.get("results", [])
-            for res in results:
-                state.retrieved_evidence.append(
-                    EvidenceItem(
-                        source_doc=res.get("doc_name", "Local SOP"),
-                        page_num=res.get("page"),
-                        snippet=res.get("snippet", ""),
-                        confidence_score=res.get("score", 1.0),
-                    )
-                )
-        elif tool_name == "generate_docx_tool":
-            state.draft_deliverables["approval_note_docx"] = output.get("output_path", "")
-        elif tool_name == "generate_xlsx_tool":
-            state.draft_deliverables["action_tracker_xlsx"] = output.get("output_path", "")
 </file>
 
 <file path="backend/agent/planner.py">
@@ -889,6 +712,94 @@ def clear_vector_store():
     store = get_vector_store()
     store.clear()
     return {"status": "CLEARED", "total_chunks": store.count()}
+</file>
+
+<file path="backend/api/system_router.py">
+"""
+NEW FILE: real system/network monitoring for the Network Sovereignty panel.
+Replaces the static `initialNetworkLogs` fixture in the frontend.
+
+Install: pip install psutil
+"""
+
+import time
+from typing import List, Dict, Any
+
+import psutil
+from fastapi import APIRouter
+
+router = APIRouter(prefix="/api/system", tags=["System Monitor"])
+
+# IPs/hosts considered "local" (never counted as external egress)
+LOCAL_PREFIXES = ("127.", "0.0.0.0", "::1", "localhost")
+
+
+def _is_local(ip: str) -> bool:
+    return any(ip.startswith(p) for p in LOCAL_PREFIXES)
+
+
+@router.get("/network")
+def get_network_connections() -> Dict[str, Any]:
+    """
+    Returns real active network connections for this machine right now.
+    Classifies each as local (allowed) or external (flagged) so the
+    frontend can render a genuinely live sovereignty proof instead of
+    a static fixture.
+    """
+    connections: List[Dict[str, Any]] = []
+    total = 0
+    local_count = 0
+    external_count = 0
+
+    try:
+        for conn in psutil.net_connections(kind="inet"):
+            if conn.status not in ("ESTABLISHED", "LISTEN"):
+                continue
+
+            raddr = conn.raddr
+            laddr = conn.laddr
+
+            dest_ip = f"{raddr.ip}:{raddr.port}" if raddr else (
+                f"{laddr.ip}:{laddr.port}" if laddr else "unknown"
+            )
+            ip_only = raddr.ip if raddr else (laddr.ip if laddr else "0.0.0.0")
+
+            is_external = not _is_local(ip_only) and conn.status == "ESTABLISHED"
+
+            total += 1
+            if is_external:
+                external_count += 1
+            else:
+                local_count += 1
+
+            connections.append({
+                "id": f"conn-{conn.pid}-{conn.fd}",
+                "pid": conn.pid,
+                "destination": dest_ip,
+                "status_raw": conn.status,
+                "isExternal": is_external,
+                "status": "BLOCKED_OR_FLAGGED" if is_external else "ALLOWED_LOCAL",
+            })
+    except psutil.AccessDenied:
+        # On some OSes this needs elevated permissions; report that plainly
+        # rather than silently returning fake data.
+        return {
+            "error": "Access denied reading network connections. "
+                     "Try running the backend with elevated/admin privileges.",
+            "total_connections": 0,
+            "local_count": 0,
+            "external_count": 0,
+            "connections": [],
+            "timestamp": time.time(),
+        }
+
+    return {
+        "total_connections": total,
+        "local_count": local_count,
+        "external_count": external_count,
+        "connections": connections[-50:],  # most recent 50
+        "timestamp": time.time(),
+    }
 </file>
 
 <file path="backend/rag/__init__.py">
@@ -3461,672 +3372,6 @@ export const MultimodalInspector: React.FC = () => {
 };
 </file>
 
-<file path="frontend/src/components/NetworkMonitor.tsx">
-import React from "react";
-import { ShieldAlert, ShieldCheck, Activity, Globe } from "lucide-react";
-import { initialNetworkLogs } from "../services/api";
-
-export const NetworkMonitor: React.FC = () => {
-  return (
-    <div style={{ maxWidth: "1000px", margin: "0 auto", marginTop: "2rem" }}>
-      <div style={{ marginBottom: "1.5rem" }}>
-        <h2 style={{ fontWeight: 600, fontSize: "1.25rem", color: "var(--text-primary)", marginBottom: "0.5rem" }}>
-          Network Security & Sovereignty
-        </h2>
-        <p style={{ fontSize: "0.9rem", color: "var(--text-muted)" }}>
-          Real-time monitoring of outbound connections. Proves complete air-gapped execution by blocking all cloud egress.
-        </p>
-      </div>
-
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "1rem", marginBottom: "1.5rem" }}>
-        <div className="panel" style={{ padding: "1.5rem" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", color: "var(--text-muted)", marginBottom: "0.5rem" }}>
-            <Activity size={16} />
-            <span style={{ fontSize: "0.85rem", fontWeight: 600 }}>Total Requests</span>
-          </div>
-          <div style={{ fontSize: "1.75rem", fontWeight: 700, color: "var(--text-primary)" }}>
-            1,204
-          </div>
-        </div>
-
-        <div className="panel" style={{ padding: "1.5rem" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", color: "var(--text-muted)", marginBottom: "0.5rem" }}>
-            <ShieldCheck size={16} color="var(--green-500)" />
-            <span style={{ fontSize: "0.85rem", fontWeight: 600 }}>Local/On-Premise (Allowed)</span>
-          </div>
-          <div style={{ fontSize: "1.75rem", fontWeight: 700, color: "var(--green-500)" }}>
-            1,202
-          </div>
-        </div>
-
-        <div className="panel" style={{ padding: "1.5rem", border: "1px solid rgba(239, 68, 68, 0.3)" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", color: "var(--text-muted)", marginBottom: "0.5rem" }}>
-            <ShieldAlert size={16} color="var(--red-500)" />
-            <span style={{ fontSize: "0.85rem", fontWeight: 600 }}>Cloud Outbound (Blocked)</span>
-          </div>
-          <div style={{ fontSize: "1.75rem", fontWeight: 700, color: "var(--red-500)" }}>
-            2
-          </div>
-        </div>
-      </div>
-
-      <div className="panel" style={{ overflow: "hidden" }}>
-        <div style={{ padding: "1.25rem 1.5rem", borderBottom: "1px solid var(--border-dim)", background: "var(--bg-raised)" }}>
-          <h3 style={{ fontSize: "0.95rem", fontWeight: 600, color: "var(--text-primary)" }}>
-            Recent Traffic Log
-          </h3>
-        </div>
-        <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.85rem", textAlign: "left" }}>
-            <thead>
-              <tr style={{ borderBottom: "1px solid var(--border-dim)", color: "var(--text-muted)" }}>
-                <th style={{ padding: "1rem 1.5rem", fontWeight: 500 }}>Time</th>
-                <th style={{ padding: "1rem 1.5rem", fontWeight: 500 }}>Destination</th>
-                <th style={{ padding: "1rem 1.5rem", fontWeight: 500 }}>Protocol/IP</th>
-                <th style={{ padding: "1rem 1.5rem", fontWeight: 500 }}>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {initialNetworkLogs.map((log) => (
-                <tr key={log.id} style={{ borderBottom: "1px solid var(--border-dim)", background: log.status === "LOCAL_BLOCKED" ? "rgba(239, 68, 68, 0.05)" : "transparent" }}>
-                  <td style={{ padding: "1rem 1.5rem", color: "var(--text-dim)" }}>{log.timestamp}</td>
-                  <td style={{ padding: "1rem 1.5rem", color: "var(--text-primary)", fontWeight: 500 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
-                      {log.isExternal ? <Globe size={14} color="var(--red-400)" /> : <Activity size={14} color="var(--green-400)" />}
-                      {log.destination}
-                    </div>
-                  </td>
-                  <td style={{ padding: "1rem 1.5rem", color: "var(--text-muted)" }}>{log.ip}</td>
-                  <td style={{ padding: "1rem 1.5rem" }}>
-                    {log.status === "LOCAL_BLOCKED" ? (
-                      <span style={{ padding: "0.2rem 0.5rem", borderRadius: "4px", background: "rgba(239, 68, 68, 0.15)", color: "var(--red-500)", fontWeight: 600, fontSize: "0.75rem" }}>
-                        BLOCKED
-                      </span>
-                    ) : (
-                      <span style={{ padding: "0.2rem 0.5rem", borderRadius: "4px", background: "rgba(16, 185, 129, 0.15)", color: "var(--green-500)", fontWeight: 600, fontSize: "0.75rem" }}>
-                        ALLOWED (LOCAL)
-                      </span>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  );
-};
-</file>
-
-<file path="frontend/src/components/ScanWorkbench.tsx">
-import React, { useState, useRef, useCallback } from "react";
-import {
-  UploadCloud,
-  FileText,
-  X,
-  ScanLine,
-  CheckCircle2,
-  FileSignature,
-  RotateCcw,
-  Loader2,
-  ClipboardList,
-  AlertTriangle,
-  Zap,
-  Cpu,
-} from "lucide-react";
-import type { AgentState, HumanDecision } from "../types/agent";
-import { DeliverablesPreview } from "./DeliverablesPreview";
-import { sampleIndustrialScenarios } from "../services/api";
-
-interface Props {
-  state: AgentState | null;
-  isRunning: boolean;
-  error: string | null;
-  onRunTask: (query: string, files: string[]) => void;
-  onSubmitApproval: (
-    decision: HumanDecision,
-    reviewer: string,
-    comments?: string,
-    modifications?: Record<string, unknown>
-  ) => void;
-  onReset: () => void;
-}
-
-// ── Phase 1: Document Intake ─────────────────────────────────────────────────
-
-const IntakeZone: React.FC<{
-  files: File[];
-  query: string;
-  onFilesChange: (f: File[]) => void;
-  onQueryChange: (q: string) => void;
-  onSubmit: () => void;
-}> = ({ files, query, onFilesChange, onQueryChange, onSubmit }) => {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const [dragging, setDragging] = useState(false);
-
-  const addFiles = (incoming: FileList | null) => {
-    if (!incoming) return;
-    onFilesChange([...files, ...Array.from(incoming)]);
-  };
-
-  const onDrop = useCallback(
-    (e: React.DragEvent) => {
-      e.preventDefault();
-      setDragging(false);
-      addFiles(e.dataTransfer.files);
-    },
-    [files]
-  );
-
-  const removeFile = (idx: number) => {
-    onFilesChange(files.filter((_, i) => i !== idx));
-  };
-
-  const handleSelectScenario = (sc: (typeof sampleIndustrialScenarios)[0]) => {
-    onQueryChange(sc.query);
-    // Convert string array to File array mock for UI display purposes
-    const mockFiles = sc.files.map((fName) => new File([""], fName, { type: "application/octet-stream" }));
-    onFilesChange(mockFiles);
-  };
-
-  const canSubmit = files.length > 0 && query.trim().length > 10;
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
-      
-      {/* Demo Scenarios */}
-      <div style={{ marginBottom: "0.5rem" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.75rem", color: "var(--text-muted)" }}>
-          <Zap size={16} color="var(--amber-500)" />
-          <span style={{ fontSize: "0.85rem", fontWeight: 600 }}>Demo Scenarios</span>
-        </div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "0.75rem" }}>
-          {sampleIndustrialScenarios.map((sc) => (
-            <button
-              key={sc.id}
-              onClick={() => handleSelectScenario(sc)}
-              style={{
-                textAlign: "left",
-                padding: "0.85rem",
-                background: "var(--bg-raised)",
-                border: "1px solid var(--border-dim)",
-                borderRadius: "8px",
-                cursor: "pointer",
-                transition: "all 0.2s ease"
-              }}
-              onMouseEnter={(e) => (e.currentTarget.style.borderColor = "var(--amber-500)")}
-              onMouseLeave={(e) => (e.currentTarget.style.borderColor = "var(--border-dim)")}
-            >
-              <div style={{ fontSize: "0.8rem", fontWeight: 600, color: "var(--text-primary)", marginBottom: "0.25rem" }}>
-                {sc.title}
-              </div>
-              <div style={{ fontSize: "0.7rem", color: "var(--text-dim)" }}>
-                {sc.category.replace(/_/g, " ")}
-              </div>
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <hr style={{ border: "none", borderTop: "1px solid var(--border-dim)", margin: "0.5rem 0" }} />
-
-      {/* Drop Zone */}
-      <div
-        className={`scan-dropzone ${dragging ? "drag-over" : ""} ${files.length > 0 ? "has-file" : ""}`}
-        style={{ minHeight: "220px", cursor: "pointer" }}
-        onClick={() => inputRef.current?.click()}
-        onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
-        onDragLeave={() => setDragging(false)}
-        onDrop={onDrop}
-      >
-        <div className="scanline-sweep" />
-
-        {files.length === 0 ? (
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              justifyContent: "center",
-              padding: "2.5rem",
-              gap: "0.85rem",
-              userSelect: "none",
-            }}
-          >
-            <div
-              style={{
-                width: "56px",
-                height: "56px",
-                borderRadius: "12px",
-                background: "var(--bg-raised)",
-                border: "1px solid var(--border-base)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-            >
-              <UploadCloud size={28} color="var(--text-dim)" />
-            </div>
-            <div style={{ textAlign: "center" }}>
-              <p style={{ fontWeight: 600, fontSize: "0.95rem", color: "var(--text-primary)" }}>
-                Select documents to analyze
-              </p>
-              <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginTop: "0.3rem" }}>
-                Supports PDFs, Images, and CSVs
-              </p>
-            </div>
-          </div>
-        ) : (
-          <div style={{ padding: "1.25rem", display: "flex", flexDirection: "column", gap: "0.6rem" }}>
-            <div
-              style={{
-                fontSize: "0.8rem",
-                color: "var(--text-primary)",
-                marginBottom: "0.25rem",
-                fontWeight: 600,
-              }}
-            >
-              {files.length} document{files.length > 1 ? "s" : ""} selected
-            </div>
-            {files.map((f, i) => (
-              <div
-                key={i}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "0.75rem",
-                  background: "var(--bg-panel)",
-                  border: "1px solid var(--border-dim)",
-                  borderRadius: "7px",
-                  padding: "0.6rem 0.85rem",
-                }}
-                onClick={(e) => e.stopPropagation()}
-              >
-                <FileText size={16} color="var(--amber-500)" />
-                <span
-                  style={{
-                    flex: 1,
-                    fontSize: "0.85rem",
-                    color: "var(--text-primary)",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  {f.name}
-                </span>
-                <button
-                  style={{
-                    background: "transparent",
-                    border: "none",
-                    color: "var(--text-dim)",
-                    cursor: "pointer",
-                    display: "flex",
-                    alignItems: "center",
-                    padding: "2px",
-                    borderRadius: "4px",
-                  }}
-                  onClick={() => removeFile(i)}
-                >
-                  <X size={16} />
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-
-        <input
-          ref={inputRef}
-          type="file"
-          multiple
-          style={{ display: "none" }}
-          onChange={(e) => addFiles(e.target.files)}
-        />
-      </div>
-
-      {/* Instruction */}
-      <div>
-        <label
-          style={{
-            display: "block",
-            fontSize: "0.8rem",
-            color: "var(--text-primary)",
-            fontWeight: 600,
-            marginBottom: "0.5rem",
-          }}
-        >
-          Instructions
-        </label>
-        <textarea
-          className="input-base"
-          rows={3}
-          value={query}
-          onChange={(e) => onQueryChange(e.target.value)}
-          placeholder="e.g. Extract weld thickness data and flag safety violations"
-        />
-      </div>
-
-      {/* CTA */}
-      <button
-        className="btn btn--primary"
-        disabled={!canSubmit}
-        onClick={onSubmit}
-        style={{ alignSelf: "flex-end", padding: "0.7rem 1.75rem", fontSize: "0.875rem" }}
-      >
-        <ScanLine size={17} />
-        Start Analysis
-      </button>
-    </div>
-  );
-};
-
-// ── Phase 2: Scanning in Progress ────────────────────────────────────────────
-
-const ScanningPhase: React.FC<{ files: File[]; query: string }> = ({ files }) => {
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
-      <div style={{ position: "relative", borderRadius: "10px", overflow: "hidden", background: "var(--bg-panel)", border: "1px solid var(--border-base)" }}>
-        <div
-          style={{
-            padding: "3rem 2rem",
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            gap: "1.5rem",
-            justifyContent: "center",
-          }}
-        >
-          <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", justifyContent: "center" }}>
-            {files.map((f, i) => (
-              <div
-                key={i}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "0.5rem",
-                  background: "var(--bg-raised)",
-                  border: "1px solid var(--border-base)",
-                  borderRadius: "8px",
-                  padding: "0.6rem 1rem",
-                }}
-              >
-                <FileText size={18} color="var(--amber-500)" />
-                <span style={{ fontSize: "0.85rem", color: "var(--text-primary)" }}>
-                  {f.name}
-                </span>
-              </div>
-            ))}
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", color: "var(--amber-500)" }}>
-            <Loader2 size={20} style={{ animation: "spin 1.2s linear infinite" }} />
-            <span style={{ fontSize: "0.9rem", fontWeight: 600 }}>
-              Executing Autonomous Agent...
-            </span>
-          </div>
-        </div>
-        <div className="scanline-sweep scanline-sweep--active" />
-      </div>
-    </div>
-  );
-};
-
-// ── Phase 3: Results ──────────────────────────────────────────────────────────
-
-const ResultsPhase: React.FC<{
-  state: AgentState;
-  onReset: () => void;
-  onSubmitApproval: Props["onSubmitApproval"];
-}> = ({ state, onReset, onSubmitApproval }) => {
-  
-  const findingsEntries = Object.entries(state.findings || {}).filter(
-    ([, v]) => v !== null && v !== undefined && v !== ""
-  );
-
-  let activeModel = "Llama-3.3-70B-Instruct";
-  if (state.category === "SANDBOX_CODE_EXECUTION") {
-    activeModel = "Qwen-2.5-Coder-32B";
-  } else if (state.category === "DOCUMENT_INSPECTION") {
-    activeModel = "LLaVA-v1.6-34B-Vision";
-  }
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
-      {/* ── Summary header ── */}
-      <div
-        className="panel"
-        style={{
-          padding: "1.25rem 1.5rem",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: "1rem",
-          flexWrap: "wrap",
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
-          <div
-            style={{
-              width: "40px",
-              height: "40px",
-              borderRadius: "10px",
-              background: "rgba(16,185,129,0.15)",
-              border: "1px solid rgba(16,185,129,0.3)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              flexShrink: 0,
-            }}
-          >
-             <CheckCircle2 size={20} color="var(--green-500)" />
-          </div>
-          <div>
-            <div
-              style={{
-                fontWeight: 600,
-                fontSize: "1rem",
-                color: "var(--text-primary)",
-              }}
-            >
-              Agent Execution Complete
-            </div>
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "0.4rem",
-                fontSize: "0.8rem",
-                color: "var(--text-muted)",
-                marginTop: "0.25rem"
-              }}
-            >
-              <Cpu size={14} color="var(--amber-500)" />
-              Auto-Routed Model: <span style={{ fontWeight: 600, color: "var(--text-primary)" }}>{activeModel}</span>
-            </div>
-          </div>
-        </div>
-
-        <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
-          <button className="btn btn--secondary" onClick={onReset}>
-            <RotateCcw size={16} />
-            Start New Task
-          </button>
-        </div>
-      </div>
-
-      {/* ── Findings grid ── */}
-      {findingsEntries.length > 0 && (
-        <div className="panel" style={{ padding: "1.5rem" }}>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "0.5rem",
-              marginBottom: "1.25rem",
-            }}
-          >
-            <ClipboardList size={18} color="var(--amber-500)" />
-            <h3 style={{ fontSize: "1rem", fontWeight: 600, color: "var(--text-primary)" }}>
-              Key Findings
-            </h3>
-          </div>
-          <div className="findings-grid">
-            {findingsEntries.map(([key, val]) => (
-              <div key={key} className="finding-cell">
-                <div className="finding-cell__label">
-                  {key.replace(/_/g, " ").toUpperCase()}
-                </div>
-                <div className="finding-cell__value">
-                  {typeof val === "boolean"
-                    ? val
-                      ? "Yes"
-                      : "No"
-                    : typeof val === "number"
-                    ? val.toLocaleString()
-                    : String(val)}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* ── Deliverables ── */}
-      <DeliverablesPreview state={state} />
-
-      {/* ── Approval ── */}
-      <div
-        className="panel"
-        style={{
-          padding: "1.5rem",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-        }}
-      >
-        <div>
-          <div style={{ fontSize: "1rem", fontWeight: 600, color: "var(--text-primary)" }}>
-            Approval Required
-          </div>
-          <div style={{ fontSize: "0.85rem", color: "var(--text-muted)", marginTop: "0.25rem" }}>
-            Please review the findings and generated deliverables.
-          </div>
-        </div>
-        <div style={{ display: "flex", gap: "1rem" }}>
-            <button
-                className="btn btn--danger"
-                onClick={() => onSubmitApproval("REJECTED", "Inspector")}
-            >
-                Reject
-            </button>
-            <button
-                className="btn btn--primary"
-                onClick={() => onSubmitApproval("APPROVED", "Inspector")}
-            >
-                <FileSignature size={16} />
-                Approve Results
-            </button>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// ── Root Workbench ────────────────────────────────────────────────────────────
-
-export const ScanWorkbench: React.FC<Props> = ({
-  state,
-  isRunning,
-  error,
-  onRunTask,
-  onSubmitApproval,
-  onReset,
-}) => {
-  const [files, setFiles] = useState<File[]>([]);
-  const [query, setQuery] = useState("");
-
-  const handleSubmit = () => {
-    onRunTask(query, files.map((f) => f.name));
-  };
-
-  const handleReset = () => {
-    setFiles([]);
-    setQuery("");
-    onReset();
-  };
-
-  // Phase determination
-  const phase: "intake" | "scanning" | "results" =
-    state ? "results" : isRunning ? "scanning" : "intake";
-
-  return (
-    <div style={{ maxWidth: "800px", margin: "0 auto", marginTop: "2rem" }}>
-      {/* Error banner */}
-      {error && (
-        <div
-          style={{
-            display: "flex",
-            alignItems: "flex-start",
-            gap: "0.75rem",
-            padding: "1rem 1.25rem",
-            marginBottom: "1.25rem",
-            background: "rgba(239,68,68,0.1)",
-            border: "1px solid rgba(239,68,68,0.3)",
-            borderRadius: "8px",
-          }}
-        >
-          <AlertTriangle size={18} color="var(--red-400)" style={{ flexShrink: 0, marginTop: "2px" }} />
-          <div style={{ flex: 1 }}>
-            <p style={{ fontWeight: 600, fontSize: "0.9rem", color: "var(--red-400)", marginBottom: "0.25rem" }}>
-              Error
-            </p>
-            <p style={{ fontSize: "0.85rem", color: "var(--text-primary)" }}>{error}</p>
-          </div>
-          <button
-            className="btn btn--secondary"
-            style={{ padding: "0.3rem 0.8rem" }}
-            onClick={handleReset}
-          >
-            Dismiss
-          </button>
-        </div>
-      )}
-
-      {/* Phase content */}
-      {phase === "intake" && (
-        <div className="panel" style={{ padding: "2rem" }}>
-          <div style={{ marginBottom: "1.5rem" }}>
-            <h2 style={{ fontWeight: 600, fontSize: "1.25rem", color: "var(--text-primary)", marginBottom: "0.5rem" }}>
-              New Task Execution
-            </h2>
-            <p style={{ fontSize: "0.9rem", color: "var(--text-muted)" }}>
-              Upload documents or select a demo scenario to initiate autonomous analysis.
-            </p>
-          </div>
-          <IntakeZone
-            files={files}
-            query={query}
-            onFilesChange={setFiles}
-            onQueryChange={setQuery}
-            onSubmit={handleSubmit}
-          />
-        </div>
-      )}
-
-      {phase === "scanning" && (
-        <div className="panel" style={{ padding: "2rem" }}>
-          <ScanningPhase files={files} query={query} />
-        </div>
-      )}
-
-      {phase === "results" && state && (
-        <ResultsPhase state={state} onReset={handleReset} onSubmitApproval={onSubmitApproval} />
-      )}
-    </div>
-  );
-};
-</file>
-
 <file path="frontend/src/components/VerificationBadge.tsx">
 import React from "react";
 import { CheckCircle2, XCircle, ShieldAlert, Sparkles, Lock } from "lucide-react";
@@ -4303,667 +3548,6 @@ export const VerificationBadge: React.FC<VerificationBadgeProps> = ({ verificati
           </div>
         ))}
       </div>
-    </div>
-  );
-};
-</file>
-
-<file path="frontend/src/components/WorkbenchCanvas.tsx">
-import React, { useState } from "react";
-import {
-  Play,
-  FileUp,
-  Clock,
-  Zap,
-  CheckCircle2,
-  AlertCircle,
-  ChevronRight,
-  ChevronDown,
-  Layers,
-  FileCheck,
-  FileSignature,
-  Activity,
-  Cpu,
-  ShieldCheck,
-  Wrench,
-  BookOpen,
-} from "lucide-react";
-import { AgentState, HumanDecision } from "../types/agent";
-import { sampleIndustrialScenarios } from "../services/api";
-import { DeliverablesPreview } from "./DeliverablesPreview";
-import { VerificationBadge } from "./VerificationBadge";
-import { HumanApprovalModal } from "./HumanApprovalModal";
-
-interface WorkbenchCanvasProps {
-  state: AgentState | null;
-  isRunning: boolean;
-  onRunTask: (query: string, files: string[]) => void;
-  onSubmitApproval: (
-    decision: HumanDecision,
-    reviewer: string,
-    comments?: string,
-    modifications?: Record<string, any>
-  ) => void;
-}
-
-export const WorkbenchCanvas: React.FC<WorkbenchCanvasProps> = ({
-  state,
-  isRunning,
-  onRunTask,
-  onSubmitApproval,
-}) => {
-  const [query, setQuery] = useState(
-    sampleIndustrialScenarios[0].query
-  );
-  const [selectedFiles, setSelectedFiles] = useState<string[]>(
-    sampleIndustrialScenarios[0].files
-  );
-  const [expandedToolId, setExpandedToolId] = useState<string | null>(null);
-  const [isApprovalModalOpen, setIsApprovalModalOpen] = useState(false);
-
-  const handleSelectScenario = (sc: (typeof sampleIndustrialScenarios)[0]) => {
-    setQuery(sc.query);
-    setSelectedFiles(sc.files);
-  };
-
-  const handleExecute = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!query.trim() || isRunning) return;
-    onRunTask(query, selectedFiles);
-  };
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
-      {/* Top Banner: Preset Industrial Scenarios */}
-      <div className="glass-panel" style={{ padding: "1.25rem" }}>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            marginBottom: "0.75rem",
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-            <Zap size={16} color="#fbbf24" />
-            <span style={{ fontSize: "0.85rem", fontWeight: 700, color: "#f1f5f9" }}>
-              PRESET INDUSTRIAL & PSU AGENT SCENARIOS
-            </span>
-          </div>
-          <span style={{ fontSize: "0.75rem", color: "#94a3b8" }}>
-            Click any scenario to auto-fill query and confidential document context
-          </span>
-        </div>
-
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
-            gap: "0.75rem",
-          }}
-        >
-          {sampleIndustrialScenarios.map((sc) => (
-            <button
-              key={sc.id}
-              onClick={() => handleSelectScenario(sc)}
-              className="glass-panel-interactive"
-              style={{
-                padding: "0.85rem",
-                textAlign: "left",
-                cursor: "pointer",
-                border: query === sc.query ? "1px solid #10b981" : "1px solid #1e293b",
-                background: query === sc.query ? "rgba(16, 185, 129, 0.1)" : "#0e1629",
-              }}
-            >
-              <div
-                style={{
-                  fontSize: "0.8rem",
-                  fontWeight: 700,
-                  color: query === sc.query ? "#34d399" : "#f1f5f9",
-                  marginBottom: "0.25rem",
-                }}
-              >
-                {sc.title}
-              </div>
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "0.4rem",
-                  fontSize: "0.7rem",
-                  color: "#94a3b8",
-                }}
-              >
-                <span className="badge-tag">{sc.category}</span>
-                <span>• {sc.files.length} attached docs</span>
-              </div>
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Main Studio Grid: Input & Execution Plan */}
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "1.1fr 0.9fr",
-          gap: "1.5rem",
-        }}
-      >
-        {/* LEFT COLUMN: Prompt & Input Studio */}
-        <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
-          <form onSubmit={handleExecute} className="glass-panel" style={{ padding: "1.5rem" }}>
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                marginBottom: "1rem",
-              }}
-            >
-              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                <Layers size={18} color="#38bdf8" />
-                <h3 style={{ fontSize: "1rem", fontWeight: 700, color: "#f1f5f9" }}>
-                  Autonomous Agent Instruction
-                </h3>
-              </div>
-              <span className="badge-sovereign">
-                <ShieldCheck size={12} /> ON-PREMISE REASONING
-              </span>
-            </div>
-
-            {/* Textarea */}
-            <div style={{ marginBottom: "1rem" }}>
-              <textarea
-                rows={5}
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Enter industrial instruction (e.g. review inspection report, execute code sandbox, search SOPs)..."
-                style={{
-                  width: "100%",
-                  background: "#080d1a",
-                  border: "1px solid #27354f",
-                  borderRadius: "8px",
-                  padding: "0.85rem",
-                  color: "#f1f5f9",
-                  fontSize: "0.85rem",
-                  lineHeight: "1.5",
-                  outline: "none",
-                  resize: "vertical",
-                }}
-              />
-            </div>
-
-            {/* Attached Confidential Files */}
-            <div style={{ marginBottom: "1.25rem" }}>
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  marginBottom: "0.5rem",
-                }}
-              >
-                <span style={{ fontSize: "0.75rem", fontWeight: 600, color: "#94a3b8" }}>
-                  ATTACHED ON-PREMISE ASSETS (P&ID, SCANNED PDFs, TELEMETRY)
-                </span>
-                <label
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "0.3rem",
-                    fontSize: "0.75rem",
-                    color: "#38bdf8",
-                    cursor: "pointer",
-                  }}
-                >
-                  <FileUp size={14} /> Add Local File
-                  <input
-                    type="file"
-                    multiple
-                    style={{ display: "none" }}
-                    onChange={(e) => {
-                      if (e.target.files) {
-                        const names = Array.from(e.target.files).map((f) => f.name);
-                        setSelectedFiles([...selectedFiles, ...names]);
-                      }
-                    }}
-                  />
-                </label>
-              </div>
-
-              <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem" }}>
-                {selectedFiles.map((file, idx) => (
-                  <div
-                    key={idx}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "0.4rem",
-                      padding: "0.3rem 0.65rem",
-                      background: "#0c1424",
-                      border: "1px solid #1e293b",
-                      borderRadius: "6px",
-                      fontSize: "0.75rem",
-                      color: "#e2e8f0",
-                      fontFamily: "var(--font-mono)",
-                    }}
-                  >
-                    <FileCheck size={14} color="#10b981" />
-                    <span>{file}</span>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setSelectedFiles(selectedFiles.filter((_, i) => i !== idx))
-                      }
-                      style={{
-                        background: "transparent",
-                        border: "none",
-                        color: "#64748b",
-                        cursor: "pointer",
-                        marginLeft: "0.2rem",
-                      }}
-                    >
-                      ×
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Launch Button & Status */}
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                borderTop: "1px solid #1e293b",
-                paddingTop: "1.25rem",
-              }}
-            >
-              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                <Activity size={16} color="#34d399" />
-                <span style={{ fontSize: "0.75rem", color: "#94a3b8" }}>
-                  Model Auto-Selector: <strong>Dynamic Local Routing</strong>
-                </span>
-              </div>
-
-              <button
-                type="submit"
-                disabled={isRunning}
-                className="btn-primary"
-                style={{
-                  opacity: isRunning ? 0.7 : 1,
-                  cursor: isRunning ? "not-allowed" : "pointer",
-                }}
-              >
-                {isRunning ? (
-                  <>
-                    <span className="animate-spin-slow">⏳</span>
-                    <span>Executing Sovereign Agent...</span>
-                  </>
-                ) : (
-                  <>
-                    <Play size={16} />
-                    <span>Launch Autonomous Plan</span>
-                  </>
-                )}
-              </button>
-            </div>
-          </form>
-
-          {/* Verification Badge */}
-          {state && <VerificationBadge verification={state.verification} />}
-        </div>
-
-        {/* RIGHT COLUMN: Step-by-Step Plan & Execution State */}
-        <div className="glass-panel" style={{ padding: "1.5rem", display: "flex", flexDirection: "column" }}>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              marginBottom: "1.25rem",
-              borderBottom: "1px solid #1e293b",
-              paddingBottom: "0.75rem",
-            }}
-          >
-            <div>
-              <h3 style={{ fontSize: "1rem", fontWeight: 700, color: "#f1f5f9" }}>
-                Multi-Step Execution State Machine
-              </h3>
-              <p style={{ fontSize: "0.75rem", color: "#94a3b8" }}>
-                Task ID:{" "}
-                <span className="font-mono" style={{ color: "#38bdf8" }}>
-                  {state ? state.task_id : "Awaiting launch"}
-                </span>
-              </p>
-            </div>
-
-            {state && (
-              <span
-                style={{
-                  padding: "0.25rem 0.65rem",
-                  borderRadius: "9999px",
-                  fontSize: "0.75rem",
-                  fontWeight: 700,
-                  fontFamily: "var(--font-mono)",
-                  background:
-                    state.status === "COMPLETED"
-                      ? "rgba(16, 185, 129, 0.2)"
-                      : state.status === "AWAITING_APPROVAL"
-                      ? "rgba(245, 158, 11, 0.2)"
-                      : "rgba(59, 130, 246, 0.2)",
-                  color:
-                    state.status === "COMPLETED"
-                      ? "#34d399"
-                      : state.status === "AWAITING_APPROVAL"
-                      ? "#fbbf24"
-                      : "#60a5fa",
-                  border: "1px solid currentColor",
-                }}
-              >
-                {state.status}
-              </span>
-            )}
-          </div>
-
-          {/* Steps List */}
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              gap: "0.75rem",
-              maxHeight: "480px",
-              overflowY: "auto",
-              paddingRight: "0.25rem",
-            }}
-          >
-            {state && state.plan.length > 0 ? (
-              state.plan.map((step) => {
-                const toolCall = state.tool_calls.find((tc) => tc.step_id === step.step_id);
-                const isExpanded = expandedToolId === `step_${step.step_id}`;
-
-                return (
-                  <div
-                    key={step.step_id}
-                    style={{
-                      background: "#0c1322",
-                      border:
-                        step.status === "COMPLETED"
-                          ? "1px solid #1e293b"
-                          : step.status === "IN_PROGRESS"
-                          ? "1px solid #3b82f6"
-                          : "1px solid #1e293b",
-                      borderRadius: "8px",
-                      overflow: "hidden",
-                    }}
-                  >
-                    <div
-                      onClick={() =>
-                        setExpandedToolId(isExpanded ? null : `step_${step.step_id}`)
-                      }
-                      style={{
-                        padding: "0.75rem 1rem",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "space-between",
-                        cursor: "pointer",
-                        background:
-                          step.status === "IN_PROGRESS"
-                            ? "rgba(59, 130, 246, 0.1)"
-                            : "transparent",
-                      }}
-                    >
-                      <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-                        {step.status === "COMPLETED" ? (
-                          <CheckCircle2 size={18} color="#10b981" />
-                        ) : step.status === "IN_PROGRESS" ? (
-                          <span className="animate-spin-slow" style={{ fontSize: "1rem" }}>
-                            ⚙️
-                          </span>
-                        ) : step.status === "FAILED" ? (
-                          <AlertCircle size={18} color="#ef4444" />
-                        ) : (
-                          <div
-                            style={{
-                              width: "18px",
-                              height: "18px",
-                              borderRadius: "50%",
-                              border: "2px solid #334155",
-                            }}
-                          />
-                        )}
-
-                        <div>
-                          <div style={{ fontSize: "0.85rem", fontWeight: 600, color: "#f1f5f9" }}>
-                            Step {step.step_id}: {step.title}
-                          </div>
-                          <div
-                            style={{
-                              display: "flex",
-                              alignItems: "center",
-                              gap: "0.4rem",
-                              fontSize: "0.72rem",
-                              color: "#94a3b8",
-                              marginTop: "0.15rem",
-                            }}
-                          >
-                            <span className="font-mono" style={{ color: "#38bdf8" }}>
-                              <Wrench size={12} style={{ display: "inline", marginRight: "2px" }} />
-                              {step.assigned_tool}
-                            </span>
-                            {toolCall && (
-                              <span>• {toolCall.execution_time_ms}ms</span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-
-                      {isExpanded ? (
-                        <ChevronDown size={16} color="#64748b" />
-                      ) : (
-                        <ChevronRight size={16} color="#64748b" />
-                      )}
-                    </div>
-
-                    {/* Expanded Tool Call Details */}
-                    {isExpanded && (
-                      <div
-                        style={{
-                          padding: "0.85rem 1rem",
-                          borderTop: "1px solid #1e293b",
-                          background: "#050811",
-                        }}
-                      >
-                        <p style={{ fontSize: "0.75rem", color: "#cbd5e1", marginBottom: "0.5rem" }}>
-                          {step.description}
-                        </p>
-
-                        {step.result && (
-                          <div>
-                            <span
-                              style={{
-                                fontSize: "0.7rem",
-                                fontWeight: 700,
-                                color: "#34d399",
-                                fontFamily: "var(--font-mono)",
-                              }}
-                            >
-                              TOOL RESULT PAYLOAD:
-                            </span>
-                            <pre
-                              className="font-mono"
-                              style={{
-                                background: "#090f1d",
-                                border: "1px solid #1e293b",
-                                borderRadius: "4px",
-                                padding: "0.5rem",
-                                fontSize: "0.72rem",
-                                color: "#94a3b8",
-                                overflowX: "auto",
-                                marginTop: "0.25rem",
-                              }}
-                            >
-                              {JSON.stringify(step.result, null, 2)}
-                            </pre>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                );
-              })
-            ) : (
-              <div
-                style={{
-                  textAlign: "center",
-                  padding: "3rem 1rem",
-                  color: "#64748b",
-                }}
-              >
-                <Layers size={36} style={{ margin: "0 auto 0.75rem", opacity: 0.4 }} />
-                <p style={{ fontSize: "0.85rem" }}>No active agent execution plan.</p>
-                <p style={{ fontSize: "0.75rem" }}>
-                  Launch a scenario or submit a prompt to begin multi-step orchestration.
-                </p>
-              </div>
-            )}
-          </div>
-
-          {/* HITL Sign-Off Gate Action Bar */}
-          {state && (
-            <div
-              style={{
-                marginTop: "auto",
-                paddingTop: "1.25rem",
-                borderTop: "1px solid #1e293b",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-              }}
-            >
-              <div>
-                <span style={{ fontSize: "0.75rem", color: "#94a3b8" }}>
-                  HITL Review Gate:{" "}
-                </span>
-                <span
-                  style={{
-                    fontSize: "0.8rem",
-                    fontWeight: 700,
-                    color:
-                      state.approval.status === "APPROVED"
-                        ? "#34d399"
-                        : state.approval.status === "REJECTED"
-                        ? "#f87171"
-                        : "#fbbf24",
-                  }}
-                >
-                  {state.approval.status}
-                </span>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => setIsApprovalModalOpen(true)}
-                className="btn-secondary"
-                style={{ padding: "0.45rem 0.85rem", fontSize: "0.8rem" }}
-              >
-                <FileSignature size={14} />
-                <span>Review & Sign Deliverables</span>
-              </button>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Grounded Evidence Citations */}
-      {state && state.retrieved_evidence.length > 0 && (
-        <div className="glass-panel" style={{ padding: "1.25rem" }}>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "0.5rem",
-              marginBottom: "0.75rem",
-            }}
-          >
-            <BookOpen size={16} color="#38bdf8" />
-            <h4 style={{ fontSize: "0.9rem", fontWeight: 700, color: "#f1f5f9" }}>
-              Grounded SOP & Standard Citations (Vector RAG)
-            </h4>
-          </div>
-
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
-              gap: "0.75rem",
-            }}
-          >
-            {state.retrieved_evidence.map((ev, idx) => (
-              <div
-                key={idx}
-                style={{
-                  background: "#0a1021",
-                  border: "1px solid #1e293b",
-                  borderRadius: "8px",
-                  padding: "0.85rem",
-                }}
-              >
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    marginBottom: "0.35rem",
-                  }}
-                >
-                  <span
-                    style={{
-                      fontSize: "0.8rem",
-                      fontWeight: 700,
-                      color: "#38bdf8",
-                      fontFamily: "var(--font-mono)",
-                    }}
-                  >
-                    {ev.source_doc} {ev.page_num && `(p. ${ev.page_num})`}
-                  </span>
-                  <span
-                    style={{
-                      fontSize: "0.7rem",
-                      fontFamily: "var(--font-mono)",
-                      color: "#34d399",
-                    }}
-                  >
-                    {(ev.confidence_score * 100).toFixed(1)}% Match
-                  </span>
-                </div>
-                <p style={{ fontSize: "0.78rem", color: "#94a3b8", fontStyle: "italic" }}>
-                  "{ev.snippet}"
-                </p>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Deliverables Section */}
-      {state && (
-        <div style={{ marginTop: "0.5rem" }}>
-          <DeliverablesPreview state={state} />
-        </div>
-      )}
-
-      {/* Human Approval Modal */}
-      {state && (
-        <HumanApprovalModal
-          state={state}
-          isOpen={isApprovalModalOpen}
-          onClose={() => setIsApprovalModalOpen(false)}
-          onSubmitDecision={onSubmitApproval}
-        />
-      )}
     </div>
   );
 };
@@ -6389,153 +4973,181 @@ No cloud calls. No external data transfer. Local models, local RAG, local tools.
 See `backend/README.md` and `frontend/README.md` for setup instructions.
 </file>
 
-<file path="backend/api/agent_router.py">
+<file path="backend/agent/orchestrator.py">
 """
-FastAPI Router for Sovereign Agent Execution, State Management, and Human Approval.
-"""
-
-from typing import Any, Dict, List, Optional
-from fastapi import APIRouter, HTTPException, status
-from pydantic import BaseModel, Field
-
-from backend.agent.state import AgentState, AgentTrace, HumanDecision
-from backend.agent.orchestrator import AgentOrchestrator
-from backend.agent.verifier import SelfVerifier
-from backend.agent.human_approval import HumanApprovalManager
-
-router = APIRouter(prefix="/api/agent", tags=["Agent Orchestrator"])
-orchestrator = AgentOrchestrator()
-
-
-class RunAgentRequest(BaseModel):
-    user_query: str = Field(..., description="User query or instruction prompt")
-    input_files: Optional[List[str]] = Field(default_factory=list, description="Uploaded file paths")
-    task_id: Optional[str] = Field(None, description="Optional task ID")
-
-
-class HumanApprovalRequest(BaseModel):
-    task_id: str
-    decision: HumanDecision
-    reviewer: str = "Authorized Inspector"
-    comments: Optional[str] = None
-    modifications: Optional[Dict[str, Any]] = None
-
-
-
-@router.post("/run", response_model=AgentState, status_code=status.HTTP_200_OK)
-def run_agent_workflow(req: RunAgentRequest):
-    """Starts agent task, runs execution plan steps, and executes self-verification."""
-    state = orchestrator.create_task(query=req.user_query, input_files=req.input_files, task_id=req.task_id)
-    state = orchestrator.run_all_steps(state)
-    SelfVerifier.verify(state)
-    return state
-
-
-@router.get("/state/{task_id}", response_model=AgentState)
-def get_agent_state(task_id: str):
-    """Retrieves full agent state including findings, deliverables, and approval status."""
-    state = orchestrator.get_task(task_id)
-    if not state:
-        raise HTTPException(status_code=404, detail=f"Agent task '{task_id}' not found.")
-    return state
-
-
-@router.get("/trace/{task_id}", response_model=AgentTrace)
-def get_agent_trace(task_id: str):
-    """Retrieves live execution trace events for judge dashboard & UI visualization."""
-    state = orchestrator.get_task(task_id)
-    if not state:
-        raise HTTPException(status_code=404, detail=f"Agent task '{task_id}' not found.")
-    return state.trace
-
-
-@router.post("/approve", response_model=AgentState)
-def submit_human_approval(req: HumanApprovalRequest):
-    """Submits human approval, modification, or rejection for verified agent deliverables."""
-    state = orchestrator.get_task(req.task_id)
-    if not state:
-        raise HTTPException(status_code=404, detail=f"Agent task '{req.task_id}' not found.")
-
-    updated_state = HumanApprovalManager.submit_decision(
-        state=state,
-        decision=req.decision,
-        reviewer=req.reviewer,
-        comments=req.comments,
-        modifications=req.modifications,
-    )
-    return updated_state
-
-
-@router.get("/tools")
-def list_available_tools():
-    """Lists all sovereign local tools registered in the agent hub."""
-    return orchestrator.tool_registry.list_tools()
-
-
-@router.post("/ingest")
-def ingest_document(file_path: str, force_ocr: bool = False, force_vlm: bool = False):
-    """Phase 2 Document & Vision Ingestion API endpoint."""
-    from ingestion import extract_content
-    result = extract_content(file_path=file_path, force_ocr=force_ocr, force_vlm=force_vlm)
-    return result.model_dump()
-
-
-@router.get("/ingest/sample")
-def get_sample_ingestion():
-    """Returns sample Phase 2 document & vision ingestion result."""
-    from ingestion import extract_content
-    sample_path = "ingestion/samples/sample_plant_inspection.txt"
-    result = extract_content(file_path=sample_path)
-    return result.model_dump()
-</file>
-
-<file path="backend/main.py">
-"""
-KAVACH AI Backend Entrypoint (FastAPI).
-Sovereign Industrial AI Workbench.
+State Machine Agent Orchestrator for KAVACH AI Workbench.
 """
 
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from backend.api.agent_router import router as agent_router
-from backend.api.rag_router import router as rag_router
-
-app = FastAPI(
-    title="KAVACH AI - Sovereign Industrial AI Workbench API",
-    description="On-premise, air-gapped agentic AI backend with 0 external cloud calls.",
-    version="1.0.0",
+import uuid
+import logging
+from typing import Dict, List, Optional
+from backend.agent.state import (
+    AgentState,
+    AgentTrace,
+    EvidenceItem,
+    StepStatus,
+    TaskCategory,
 )
+from backend.agent.planner import AgentPlanner
+from backend.agent.tools_registry import ToolRegistry, default_tool_registry
 
-# Enable CORS for React UI
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-app.include_router(agent_router)
-app.include_router(rag_router)
+logger = logging.getLogger("kavach_agent.orchestrator")
 
 
-@app.get("/")
-def root_status():
-    return {
-        "status": "ONLINE",
-        "system": "KAVACH AI Sovereign Industrial Workbench",
-        "sovereignty_proof": "0 cloud calls / Air-gapped ready",
-    }
+class AgentOrchestrator:
+    """Manages the full lifecycle of an Agent execution task state machine."""
 
+    def __init__(self, tool_registry: Optional[ToolRegistry] = None):
+        self.tool_registry = tool_registry or default_tool_registry
+        self._states: Dict[str, AgentState] = {}
 
-@app.get("/health")
-def health_check():
-    return {"status": "healthy"}
+    def create_task(self, query: str, input_files: Optional[List[str]] = None, task_id: Optional[str] = None) -> AgentState:
+        if not task_id:
+            task_id = f"task_{uuid.uuid4().hex[:10]}"
 
+        files = input_files or []
+        state = AgentState(
+            task_id=task_id,
+            user_query=query,
+            input_files=files,
+            trace=AgentTrace(task_id=task_id),
+            status="INITIALIZED",
+        )
 
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run("backend.main:app", host="0.0.0.0", port=8000, reload=True)
+        state.add_trace_event(
+            event_type="INITIALIZATION",
+            message=f"Initialized sovereign agent task '{task_id}'.",
+            payload={"query": query, "input_files": files},
+        )
+
+        # Classify and plan
+        category, steps = AgentPlanner.create_plan(state)
+        state.category = category
+        state.plan = steps
+        state.status = "PLANNED"
+
+        state.add_trace_event(
+            event_type="CLASSIFICATION",
+            message=f"Task classified as '{category.value}'.",
+            payload={"category": category.value},
+        )
+        state.add_trace_event(
+            event_type="PLANNING",
+            message=f"Generated execution plan with {len(steps)} steps.",
+            payload={"plan_steps": [s.title for s in steps]},
+        )
+
+        self._states[task_id] = state
+        return state
+
+    def get_task(self, task_id: str) -> Optional[AgentState]:
+        return self._states.get(task_id)
+
+    def execute_next_step(self, state: AgentState) -> AgentState:
+        """Executes the next pending plan step in the state machine."""
+        if state.current_step_index >= len(state.plan):
+            state.status = "VERIFYING"
+            return state
+
+        current_step = state.plan[state.current_step_index]
+        current_step.status = StepStatus.IN_PROGRESS
+        state.status = "EXECUTING"
+
+        state.add_trace_event(
+            event_type="TOOL_START",
+            message=f"Step {current_step.step_id}: Executing '{current_step.assigned_tool}' for '{current_step.title}'.",
+            payload={"step_id": current_step.step_id, "tool": current_step.assigned_tool},
+        )
+
+        # Prepare parameters based on tool and state context
+        params = self._build_tool_params(current_step.assigned_tool, state)
+
+        # Execute tool via registry with retry logic
+        call_record = self.tool_registry.execute_with_retry(
+            tool_name=current_step.assigned_tool,
+            step_id=current_step.step_id,
+            params=params,
+        )
+
+        state.tool_calls.append(call_record)
+        state.trace.total_tool_calls += 1
+
+        if call_record.success:
+            current_step.status = StepStatus.COMPLETED
+            current_step.result = call_record.output if isinstance(call_record.output, dict) else {"output": call_record.output}
+            self._update_state_findings(state, current_step.assigned_tool, call_record.output)
+
+            state.add_trace_event(
+                event_type="TOOL_END",
+                message=f"Step {current_step.step_id} completed successfully in {call_record.execution_time_ms}ms.",
+                payload={"step_id": current_step.step_id, "success": True},
+            )
+        else:
+            current_step.status = StepStatus.FAILED
+            current_step.error = call_record.error_message
+            state.add_trace_event(
+                event_type="ERROR",
+                message=f"Step {current_step.step_id} failed: {call_record.error_message}",
+                payload={"step_id": current_step.step_id, "error": call_record.error_message},
+            )
+
+        state.current_step_index += 1
+
+        if state.current_step_index >= len(state.plan):
+            state.status = "VERIFYING"
+
+        return state
+
+    def run_all_steps(self, state: AgentState) -> AgentState:
+        """Runs all remaining steps in the plan until complete or verifying stage."""
+        while state.current_step_index < len(state.plan) and state.status in ["PLANNED", "EXECUTING"]:
+            self.execute_next_step(state)
+        return state
+
+    def _build_tool_params(self, tool_name: str, state: AgentState) -> Dict[str, any]:
+        first_file = state.input_files[0] if state.input_files else "inspection_report.pdf"
+
+        if tool_name == "ocr_pdf_tool":
+            return {"file_path": first_file}
+        elif tool_name == "vision_analysis_tool":
+            return {"image_path": first_file, "prompt": "Identify defects and structural anomalies."}
+        elif tool_name == "rag_search_tool":
+            return {"query": state.user_query, "top_k": 3}
+        elif tool_name == "sandbox_code_tool":
+            return {"code": "# Auto-generated verification script\nprint('Zero cloud calls confirmed.')"}
+        elif tool_name == "generate_docx_tool":
+            return {"title": f"Approval Note: {state.user_query}", "findings": state.findings, "evidence": state.retrieved_evidence, "task_id": state.task_id, "output_path": f"{state.task_id}_Approval_Note.docx"}
+        elif tool_name == "generate_xlsx_tool":
+            return {"items": [{"task": "Inspect Weld B-12", "priority": "HIGH"}], "output_path": f"{state.task_id}_Action_Tracker.xlsx"}
+        elif tool_name == "model_router_tool":
+            return {"task_type": "reasoning", "prompt": state.user_query}
+        return {}
+
+    def _update_state_findings(self, state: AgentState, tool_name: str, output: any):
+        if not isinstance(output, dict):
+            return
+
+        if tool_name == "ocr_pdf_tool":
+            state.findings["ocr_extracted_text"] = output.get("extracted_text", "")
+            state.findings["tables_found"] = output.get("tables_found", 0)
+        elif tool_name == "vision_analysis_tool":
+            state.findings["vision_analysis"] = output.get("analysis", "")
+            state.findings["confidence"] = output.get("confidence", 0.0)
+        elif tool_name == "rag_search_tool":
+            results = output.get("results", [])
+            for res in results:
+                state.retrieved_evidence.append(
+                    EvidenceItem(
+                        source_doc=res.get("doc_name", "Local SOP"),
+                        page_num=res.get("page"),
+                        snippet=res.get("snippet", ""),
+                        confidence_score=res.get("score", 1.0),
+                    )
+                )
+        elif tool_name == "generate_docx_tool":
+            state.draft_deliverables["approval_note_docx"] = output.get("output_path", "")
+        elif tool_name == "generate_xlsx_tool":
+            state.draft_deliverables["action_tracker_xlsx"] = output.get("output_path", "")
 </file>
 
 <file path="frontend/src/components/Navbar.tsx">
@@ -6708,201 +5320,746 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab, isRunni
 };
 </file>
 
-<file path="frontend/src/services/api.ts">
-/**
- * KAVACH AI — API Client
- * All data comes from the real backend. No simulators.
- */
+<file path="frontend/src/components/NetworkMonitor.tsx">
+import React, { useEffect, useState } from "react";
+import { ShieldAlert, ShieldCheck, Activity, Globe } from "lucide-react";
+import { fetchNetworkStats } from "../services/api";
 
-import { AgentState, HumanDecision, ModelInfo, NetworkPacketLog } from "../types/agent";
-
-const API_BASE_URL = "http://localhost:8000/api/agent";
-
-// ── Static reference data (used by other tabs, not dummy outputs) ──────────
-
-export const activeModelsList: ModelInfo[] = [
-  {
-    id: "qwen-coder",
-    name: "Qwen-2.5-Coder-32B-Instruct",
-    specialization: "Isolated Sandbox Code Execution & Mathematical Calculations",
-    weightsFormat: "GGUF Q4_K_M (On-Premise GPU)",
-    vramUsageGb: 19.4,
-    contextLength: "128k Tokens",
-    status: "ACTIVE",
-    tokenThroughput: 48.2,
-    description: "Executes Python stress/fatigue calculations & generates deterministic audit scripts.",
-  },
-  {
-    id: "llava-vision",
-    name: "LLaVA-v1.6-34B-Vision / Qwen2-VL",
-    specialization: "P&ID Drawings, Ultrasonic Scans, Weld Defect Recognition",
-    weightsFormat: "AWQ 4-Bit (Local VRAM)",
-    vramUsageGb: 21.2,
-    contextLength: "32k Tokens",
-    status: "ACTIVE",
-    tokenThroughput: 34.6,
-    description: "Multimodal visual OCR & structural defect localization on industrial schematics.",
-  },
-  {
-    id: "llama3-reasoning",
-    name: "Llama-3.3-70B-Instruct-Sovereign",
-    specialization: "Industrial SOP Compliance, Approval Note Synthesis, RAG Grounding",
-    weightsFormat: "EXL2 4.25bpw (Air-Gapped Cluster)",
-    vramUsageGb: 38.5,
-    contextLength: "128k Tokens",
-    status: "ROUTED",
-    tokenThroughput: 39.1,
-    description: "Synthesizes formal PSU / Refinery Board Approval Notes with statutory citations.",
-  },
-  {
-    id: "deepseek-r1",
-    name: "DeepSeek-R1-Distill-Llama-70B",
-    specialization: "Multi-step Chain-of-Thought Verification & Failure Mode Analysis",
-    weightsFormat: "GGUF Q5_K_M (Local Host)",
-    vramUsageGb: 42.0,
-    contextLength: "64k Tokens",
-    status: "STANDBY",
-    tokenThroughput: 28.4,
-    description: "Deep reasoning engine verifying ASME Section VIII engineering limit adherence.",
-  },
-];
-
-export const initialNetworkLogs: NetworkPacketLog[] = [
-  {
-    id: "pkt-01",
-    timestamp: "Just now",
-    destination: "Localhost GPU Tensor Engine (CUDA:0)",
-    ip: "127.0.0.1:8000",
-    protocol: "IPC / Local Shared Memory",
-    status: "ON_PREM_GPU",
-    isExternal: false,
-    sizeBytes: 4194304,
-  },
-  {
-    id: "pkt-02",
-    timestamp: "1s ago",
-    destination: "Docker Network Sandbox (Isolated Bridge)",
-    ip: "172.18.0.2:0 (NO_INET)",
-    protocol: "Unix Domain Socket",
-    status: "INTERNAL_SOCKET",
-    isExternal: false,
-    sizeBytes: 12480,
-  },
-  {
-    id: "pkt-03",
-    timestamp: "3s ago",
-    destination: "Vector ChromaDB / Milvus Local SQLite",
-    ip: "127.0.0.1:8001",
-    protocol: "Local Embedded",
-    status: "ON_PREM_GPU",
-    isExternal: false,
-    sizeBytes: 89120,
-  },
-  {
-    id: "pkt-04",
-    timestamp: "5s ago",
-    destination: "Blocked Cloud Outbound (api.openai.com)",
-    ip: "0.0.0.0 (IPTABLES DROP)",
-    protocol: "HTTPS / 443",
-    status: "LOCAL_BLOCKED",
-    isExternal: true,
-    sizeBytes: 0,
-  },
-  {
-    id: "pkt-05",
-    timestamp: "7s ago",
-    destination: "Blocked Cloud Outbound (api.anthropic.com)",
-    ip: "0.0.0.0 (AIR-GAP AIRTIGHT)",
-    protocol: "HTTPS / 443",
-    status: "LOCAL_BLOCKED",
-    isExternal: true,
-    sizeBytes: 0,
-  },
-];
-
-export const sampleIndustrialScenarios = [
-  {
-    id: "sc-1",
-    title: "Document Inspection",
-    category: "DOCUMENT_INSPECTION",
-    query: "Review the attached pump maintenance log. Extract the key findings, identify any anomalies, and draft an approval note for the supervisor.",
-    files: ["pump_maintenance_log_Q3.pdf"]
-  },
-  {
-    id: "sc-2",
-    title: "Sandbox Execution",
-    category: "SANDBOX_CODE_EXECUTION",
-    query: "Analyze the vibration telemetry CSV data. Write and execute a Python script in the sandbox to identify periods where vibration exceeds the safe threshold of 0.8g.",
-    files: ["vibration_telemetry_unit4.csv"]
-  },
-  {
-    id: "sc-3",
-    title: "Multimodal Analysis",
-    category: "MULTIMODAL_ANALYSIS",
-    query: "Examine this P&ID drawing and identify the location of the pressure relief valve. Cross-reference with the safety manual to ensure it's positioned correctly.",
-    files: ["pid_diagram_reactor_B.png", "safety_manual_v2.pdf"]
-  }
-];
-
-// ── Live API calls ─────────────────────────────────────────────────────────
-
-/**
- * Fetches the list of registered tools from the backend.
- */
-export async function fetchAvailableTools(): Promise<
-  Array<{ name: string; description: string; category: string }>
-> {
-  const response = await fetch(`${API_BASE_URL}/tools`);
-  if (!response.ok) throw new Error(`Tools fetch failed: ${response.status}`);
-  return response.json();
+interface NetworkConnection {
+  id: string;
+  destination: string;
+  isExternal: boolean;
+  status: string;
 }
 
-/**
- * Runs the agent workflow for a given query and file list.
- * Throws if the backend is unreachable — no silent fallback.
- */
-export async function runAgentWorkflow(
-  query: string,
-  inputFiles: string[] = []
-): Promise<AgentState> {
-  const response = await fetch(`${API_BASE_URL}/run`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ user_query: query, input_files: inputFiles }),
-  });
+export const NetworkMonitor: React.FC = () => {
+  const [stats, setStats] = useState<{
+    total_connections: number;
+    local_count: number;
+    external_count: number;
+    connections: NetworkConnection[];
+  } | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  if (!response.ok) {
-    const detail = await response.text().catch(() => "Unknown error");
-    throw new Error(`Agent run failed (${response.status}): ${detail}`);
-  }
+  useEffect(() => {
+    let cancelled = false;
 
-  return response.json();
+    const poll = async () => {
+      try {
+        const data = await fetchNetworkStats();
+        if (!cancelled) {
+          setStats(data);
+          setError(null);
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setError(e instanceof Error ? e.message : "Failed to reach backend network monitor.");
+        }
+      }
+    };
+
+    poll();
+    const interval = setInterval(poll, 2000); // real live polling, every 2s
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, []);
+
+  return (
+    <div style={{ maxWidth: "1000px", margin: "0 auto", marginTop: "2rem" }}>
+      <div style={{ marginBottom: "1.5rem" }}>
+        <h2 style={{ fontWeight: 600, fontSize: "1.25rem", color: "var(--text-primary)", marginBottom: "0.5rem" }}>
+          Network Security & Sovereignty
+        </h2>
+        <p style={{ fontSize: "0.9rem", color: "var(--text-muted)" }}>
+          Live monitoring of this machine's active connections, polled from the backend every 2 seconds.
+        </p>
+      </div>
+
+      {error && (
+        <div className="panel" style={{ padding: "1rem", marginBottom: "1rem", borderColor: "var(--red-500)" }}>
+          {error}
+        </div>
+      )}
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "1rem", marginBottom: "1.5rem" }}>
+        <div className="panel" style={{ padding: "1.5rem" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", color: "var(--text-muted)", marginBottom: "0.5rem" }}>
+            <Activity size={16} />
+            <span style={{ fontSize: "0.85rem", fontWeight: 600 }}>Total Connections</span>
+          </div>
+          <div style={{ fontSize: "1.75rem", fontWeight: 700, color: "var(--text-primary)" }}>
+            {stats?.total_connections ?? "—"}
+          </div>
+        </div>
+
+        <div className="panel" style={{ padding: "1.5rem" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", color: "var(--text-muted)", marginBottom: "0.5rem" }}>
+            <ShieldCheck size={16} color="var(--green-500)" />
+            <span style={{ fontSize: "0.85rem", fontWeight: 600 }}>Local/On-Premise</span>
+          </div>
+          <div style={{ fontSize: "1.75rem", fontWeight: 700, color: "var(--green-500)" }}>
+            {stats?.local_count ?? "—"}
+          </div>
+        </div>
+
+        <div
+          className="panel"
+          style={{
+            padding: "1.5rem",
+            border: stats && stats.external_count > 0 ? "1px solid rgba(239, 68, 68, 0.5)" : undefined,
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", color: "var(--text-muted)", marginBottom: "0.5rem" }}>
+            <ShieldAlert size={16} color="var(--red-500)" />
+            <span style={{ fontSize: "0.85rem", fontWeight: 600 }}>External (Flagged)</span>
+          </div>
+          <div style={{ fontSize: "1.75rem", fontWeight: 700, color: "var(--red-500)" }}>
+            {stats?.external_count ?? "—"}
+          </div>
+        </div>
+      </div>
+
+      <div className="panel" style={{ overflow: "hidden" }}>
+        <div style={{ padding: "1.25rem 1.5rem", borderBottom: "1px solid var(--border-dim)", background: "var(--bg-raised)" }}>
+          <h3 style={{ fontSize: "0.95rem", fontWeight: 600, color: "var(--text-primary)" }}>
+            Live Connections (real, polled every 2s)
+          </h3>
+        </div>
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.85rem", textAlign: "left" }}>
+            <thead>
+              <tr style={{ borderBottom: "1px solid var(--border-dim)", color: "var(--text-muted)" }}>
+                <th style={{ padding: "1rem 1.5rem", fontWeight: 500 }}>Destination</th>
+                <th style={{ padding: "1rem 1.5rem", fontWeight: 500 }}>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(stats?.connections ?? []).map((conn) => (
+                <tr
+                  key={conn.id}
+                  style={{
+                    borderBottom: "1px solid var(--border-dim)",
+                    background: conn.isExternal ? "rgba(239, 68, 68, 0.05)" : "transparent",
+                  }}
+                >
+                  <td style={{ padding: "1rem 1.5rem", color: "var(--text-primary)", fontWeight: 500 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                      {conn.isExternal ? <Globe size={14} color="var(--red-400)" /> : <Activity size={14} color="var(--green-400)" />}
+                      {conn.destination}
+                    </div>
+                  </td>
+                  <td style={{ padding: "1rem 1.5rem" }}>
+                    <span
+                      style={{
+                        padding: "0.2rem 0.5rem",
+                        borderRadius: "4px",
+                        background: conn.isExternal ? "rgba(239, 68, 68, 0.15)" : "rgba(16, 185, 129, 0.15)",
+                        color: conn.isExternal ? "var(--red-500)" : "var(--green-500)",
+                        fontWeight: 600,
+                        fontSize: "0.75rem",
+                      }}
+                    >
+                      {conn.isExternal ? "FLAGGED" : "ALLOWED (LOCAL)"}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+              {stats && stats.connections.length === 0 && (
+                <tr>
+                  <td colSpan={2} style={{ padding: "1.5rem", color: "var(--text-muted)", textAlign: "center" }}>
+                    No active connections captured in this poll.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+};
+</file>
+
+<file path="frontend/src/components/ScanWorkbench.tsx">
+import React, { useState, useRef, useCallback } from "react";
+import {
+  UploadCloud,
+  FileText,
+  X,
+  ScanLine,
+  CheckCircle2,
+  FileSignature,
+  RotateCcw,
+  Loader2,
+  ClipboardList,
+  AlertTriangle,
+  Zap,
+  Cpu,
+} from "lucide-react";
+import type { AgentState, HumanDecision } from "../types/agent";
+import { DeliverablesPreview } from "./DeliverablesPreview";
+import { sampleIndustrialScenarios, uploadFile } from "../services/api";
+interface Props {
+  state: AgentState | null;
+  isRunning: boolean;
+  error: string | null;
+  onRunTask: (query: string, files: string[]) => void;
+  onSubmitApproval: (
+    decision: HumanDecision,
+    reviewer: string,
+    comments?: string,
+    modifications?: Record<string, unknown>
+  ) => void;
+  onReset: () => void;
 }
 
-/**
- * Submits a human-in-the-loop approval decision.
- * Throws if the backend is unreachable.
- */
-export async function submitHumanApproval(
-  taskId: string,
-  decision: HumanDecision,
-  reviewer: string,
-  comments?: string,
-  modifications?: Record<string, unknown>
-): Promise<AgentState> {
-  const response = await fetch(`${API_BASE_URL}/approve`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ task_id: taskId, decision, reviewer, comments, modifications }),
-  });
+// ── Phase 1: Document Intake ─────────────────────────────────────────────────
 
-  if (!response.ok) {
-    const detail = await response.text().catch(() => "Unknown error");
-    throw new Error(`Approval submission failed (${response.status}): ${detail}`);
+const IntakeZone: React.FC<{
+  files: File[];
+  query: string;
+  isUploading: boolean;
+  onFilesChange: (f: File[]) => void;
+  onQueryChange: (q: string) => void;
+  onSubmit: () => void;
+}> = ({ files, query, isUploading, onFilesChange, onQueryChange, onSubmit }) => {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [dragging, setDragging] = useState(false);
+
+  const addFiles = (incoming: FileList | null) => {
+    if (!incoming) return;
+    onFilesChange([...files, ...Array.from(incoming)]);
+  };
+
+  const onDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      setDragging(false);
+      addFiles(e.dataTransfer.files);
+    },
+    [files]
+  );
+
+  const removeFile = (idx: number) => {
+    onFilesChange(files.filter((_, i) => i !== idx));
+  };
+
+  const handleSelectScenario = (sc: (typeof sampleIndustrialScenarios)[0]) => {
+    onQueryChange(sc.query);
+  };
+
+const canSubmit = files.length > 0 && query.trim().length > 10 && !isUploading;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+      
+      {/* Demo Scenarios */}
+      <div style={{ marginBottom: "0.5rem" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.75rem", color: "var(--text-muted)" }}>
+          <Zap size={16} color="var(--amber-500)" />
+          <span style={{ fontSize: "0.85rem", fontWeight: 600 }}>Demo Scenarios</span>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "0.75rem" }}>
+          {sampleIndustrialScenarios.map((sc) => (
+            <button
+              key={sc.id}
+              onClick={() => handleSelectScenario(sc)}
+              style={{
+                textAlign: "left",
+                padding: "0.85rem",
+                background: "var(--bg-raised)",
+                border: "1px solid var(--border-dim)",
+                borderRadius: "8px",
+                cursor: "pointer",
+                transition: "all 0.2s ease"
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.borderColor = "var(--amber-500)")}
+              onMouseLeave={(e) => (e.currentTarget.style.borderColor = "var(--border-dim)")}
+            >
+              <div style={{ fontSize: "0.8rem", fontWeight: 600, color: "var(--text-primary)", marginBottom: "0.25rem" }}>
+                {sc.title}
+              </div>
+              <div style={{ fontSize: "0.7rem", color: "var(--text-dim)" }}>
+                {sc.category.replace(/_/g, " ")}
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <hr style={{ border: "none", borderTop: "1px solid var(--border-dim)", margin: "0.5rem 0" }} />
+
+      {/* Drop Zone */}
+      <div
+        className={`scan-dropzone ${dragging ? "drag-over" : ""} ${files.length > 0 ? "has-file" : ""}`}
+        style={{ minHeight: "220px", cursor: "pointer" }}
+        onClick={() => inputRef.current?.click()}
+        onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={onDrop}
+      >
+        <div className="scanline-sweep" />
+
+        {files.length === 0 ? (
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: "2.5rem",
+              gap: "0.85rem",
+              userSelect: "none",
+            }}
+          >
+            <div
+              style={{
+                width: "56px",
+                height: "56px",
+                borderRadius: "12px",
+                background: "var(--bg-raised)",
+                border: "1px solid var(--border-base)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <UploadCloud size={28} color="var(--text-dim)" />
+            </div>
+            <div style={{ textAlign: "center" }}>
+              <p style={{ fontWeight: 600, fontSize: "0.95rem", color: "var(--text-primary)" }}>
+                Select documents to analyze
+              </p>
+              <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginTop: "0.3rem" }}>
+                Supports PDFs, Images, and CSVs
+              </p>
+            </div>
+          </div>
+        ) : (
+          <div style={{ padding: "1.25rem", display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+            <div
+              style={{
+                fontSize: "0.8rem",
+                color: "var(--text-primary)",
+                marginBottom: "0.25rem",
+                fontWeight: 600,
+              }}
+            >
+              {files.length} document{files.length > 1 ? "s" : ""} selected
+            </div>
+            {files.map((f, i) => (
+              <div
+                key={i}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "0.75rem",
+                  background: "var(--bg-panel)",
+                  border: "1px solid var(--border-dim)",
+                  borderRadius: "7px",
+                  padding: "0.6rem 0.85rem",
+                }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <FileText size={16} color="var(--amber-500)" />
+                <span
+                  style={{
+                    flex: 1,
+                    fontSize: "0.85rem",
+                    color: "var(--text-primary)",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {f.name}
+                </span>
+                <button
+                  style={{
+                    background: "transparent",
+                    border: "none",
+                    color: "var(--text-dim)",
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    padding: "2px",
+                    borderRadius: "4px",
+                  }}
+                  onClick={() => removeFile(i)}
+                >
+                  <X size={16} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <input
+          ref={inputRef}
+          type="file"
+          multiple
+          style={{ display: "none" }}
+          onChange={(e) => addFiles(e.target.files)}
+        />
+      </div>
+
+      {/* Instruction */}
+      <div>
+        <label
+          style={{
+            display: "block",
+            fontSize: "0.8rem",
+            color: "var(--text-primary)",
+            fontWeight: 600,
+            marginBottom: "0.5rem",
+          }}
+        >
+          Instructions
+        </label>
+        <textarea
+          className="input-base"
+          rows={3}
+          value={query}
+          onChange={(e) => onQueryChange(e.target.value)}
+          placeholder="e.g. Extract weld thickness data and flag safety violations"
+        />
+      </div>
+
+      {/* CTA */}
+      <button
+        className="btn btn--primary"
+        disabled={!canSubmit}
+        onClick={onSubmit}
+        style={{ alignSelf: "flex-end", padding: "0.7rem 1.75rem", fontSize: "0.875rem" }}
+      >
+        <ScanLine size={17} />
+        {isUploading ? "Uploading..." : "Start Analysis"}
+      </button>
+    </div>
+  );
+};
+
+// ── Phase 2: Scanning in Progress ────────────────────────────────────────────
+
+const ScanningPhase: React.FC<{ files: File[]; query: string }> = ({ files }) => {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
+      <div style={{ position: "relative", borderRadius: "10px", overflow: "hidden", background: "var(--bg-panel)", border: "1px solid var(--border-base)" }}>
+        <div
+          style={{
+            padding: "3rem 2rem",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            gap: "1.5rem",
+            justifyContent: "center",
+          }}
+        >
+          <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", justifyContent: "center" }}>
+            {files.map((f, i) => (
+              <div
+                key={i}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "0.5rem",
+                  background: "var(--bg-raised)",
+                  border: "1px solid var(--border-base)",
+                  borderRadius: "8px",
+                  padding: "0.6rem 1rem",
+                }}
+              >
+                <FileText size={18} color="var(--amber-500)" />
+                <span style={{ fontSize: "0.85rem", color: "var(--text-primary)" }}>
+                  {f.name}
+                </span>
+              </div>
+            ))}
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", color: "var(--amber-500)" }}>
+            <Loader2 size={20} style={{ animation: "spin 1.2s linear infinite" }} />
+            <span style={{ fontSize: "0.9rem", fontWeight: 600 }}>
+              Executing Autonomous Agent...
+            </span>
+          </div>
+        </div>
+        <div className="scanline-sweep scanline-sweep--active" />
+      </div>
+    </div>
+  );
+};
+
+// ── Phase 3: Results ──────────────────────────────────────────────────────────
+
+const ResultsPhase: React.FC<{
+  state: AgentState;
+  onReset: () => void;
+  onSubmitApproval: Props["onSubmitApproval"];
+}> = ({ state, onReset, onSubmitApproval }) => {
+  
+  const findingsEntries = Object.entries(state.findings || {}).filter(
+    ([, v]) => v !== null && v !== undefined && v !== ""
+  );
+
+  let activeModel = "Llama-3.3-70B-Instruct";
+  if (state.category === "SANDBOX_CODE_EXECUTION") {
+    activeModel = "Qwen-2.5-Coder-32B";
+  } else if (state.category === "DOCUMENT_INSPECTION") {
+    activeModel = "LLaVA-v1.6-34B-Vision";
   }
 
-  return response.json();
-}
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
+      {/* ── Summary header ── */}
+      <div
+        className="panel"
+        style={{
+          padding: "1.25rem 1.5rem",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: "1rem",
+          flexWrap: "wrap",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
+          <div
+            style={{
+              width: "40px",
+              height: "40px",
+              borderRadius: "10px",
+              background: "rgba(16,185,129,0.15)",
+              border: "1px solid rgba(16,185,129,0.3)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              flexShrink: 0,
+            }}
+          >
+             <CheckCircle2 size={20} color="var(--green-500)" />
+          </div>
+          <div>
+            <div
+              style={{
+                fontWeight: 600,
+                fontSize: "1rem",
+                color: "var(--text-primary)",
+              }}
+            >
+              Agent Execution Complete
+            </div>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "0.4rem",
+                fontSize: "0.8rem",
+                color: "var(--text-muted)",
+                marginTop: "0.25rem"
+              }}
+            >
+              <Cpu size={14} color="var(--amber-500)" />
+              Auto-Routed Model: <span style={{ fontWeight: 600, color: "var(--text-primary)" }}>{activeModel}</span>
+            </div>
+          </div>
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
+          <button className="btn btn--secondary" onClick={onReset}>
+            <RotateCcw size={16} />
+            Start New Task
+          </button>
+        </div>
+      </div>
+
+      {/* ── Findings grid ── */}
+      {findingsEntries.length > 0 && (
+        <div className="panel" style={{ padding: "1.5rem" }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "0.5rem",
+              marginBottom: "1.25rem",
+            }}
+          >
+            <ClipboardList size={18} color="var(--amber-500)" />
+            <h3 style={{ fontSize: "1rem", fontWeight: 600, color: "var(--text-primary)" }}>
+              Key Findings
+            </h3>
+          </div>
+          <div className="findings-grid">
+            {findingsEntries.map(([key, val]) => (
+              <div key={key} className="finding-cell">
+                <div className="finding-cell__label">
+                  {key.replace(/_/g, " ").toUpperCase()}
+                </div>
+                <div className="finding-cell__value">
+                  {typeof val === "boolean"
+                    ? val
+                      ? "Yes"
+                      : "No"
+                    : typeof val === "number"
+                    ? val.toLocaleString()
+                    : String(val)}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Deliverables ── */}
+      <DeliverablesPreview state={state} />
+
+      {/* ── Approval ── */}
+      <div
+        className="panel"
+        style={{
+          padding: "1.5rem",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+        }}
+      >
+        <div>
+          <div style={{ fontSize: "1rem", fontWeight: 600, color: "var(--text-primary)" }}>
+            Approval Required
+          </div>
+          <div style={{ fontSize: "0.85rem", color: "var(--text-muted)", marginTop: "0.25rem" }}>
+            Please review the findings and generated deliverables.
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: "1rem" }}>
+            <button
+                className="btn btn--danger"
+                onClick={() => onSubmitApproval("REJECTED", "Inspector")}
+            >
+                Reject
+            </button>
+            <button
+                className="btn btn--primary"
+                onClick={() => onSubmitApproval("APPROVED", "Inspector")}
+            >
+                <FileSignature size={16} />
+                Approve Results
+            </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ── Root Workbench ────────────────────────────────────────────────────────────
+
+export const ScanWorkbench: React.FC<Props> = ({
+  state,
+  isRunning,
+  error,
+  onRunTask,
+  onSubmitApproval,
+  onReset,
+}) => {
+const [files, setFiles] = useState<File[]>([]);
+const [query, setQuery] = useState("");
+const [isUploading, setIsUploading] = useState(false);
+
+const handleSubmit = async () => {
+  setIsUploading(true);
+  try {
+    // Files must exist on the backend's filesystem before /api/agent/run —
+    // the orchestrator's _build_tool_params reads input_files as real
+    // server-side paths, not browser filenames. Upload each file first.
+    const uploaded = await Promise.all(files.map((f) => uploadFile(f)));
+    const savedPaths = uploaded.map((u) => u.saved_path);
+    onRunTask(query, savedPaths);
+  } catch (err) {
+    console.error("File upload failed before agent run:", err);
+    onRunTask(query, []);
+  } finally {
+    setIsUploading(false);
+  }
+};
+
+  const handleReset = () => {
+    setFiles([]);
+    setQuery("");
+    onReset();
+  };
+
+  // Phase determination
+  const phase: "intake" | "scanning" | "results" =
+    state ? "results" : isRunning ? "scanning" : "intake";
+
+  return (
+    <div style={{ maxWidth: "800px", margin: "0 auto", marginTop: "2rem" }}>
+      {/* Error banner */}
+      {error && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "flex-start",
+            gap: "0.75rem",
+            padding: "1rem 1.25rem",
+            marginBottom: "1.25rem",
+            background: "rgba(239,68,68,0.1)",
+            border: "1px solid rgba(239,68,68,0.3)",
+            borderRadius: "8px",
+          }}
+        >
+          <AlertTriangle size={18} color="var(--red-400)" style={{ flexShrink: 0, marginTop: "2px" }} />
+          <div style={{ flex: 1 }}>
+            <p style={{ fontWeight: 600, fontSize: "0.9rem", color: "var(--red-400)", marginBottom: "0.25rem" }}>
+              Error
+            </p>
+            <p style={{ fontSize: "0.85rem", color: "var(--text-primary)" }}>{error}</p>
+          </div>
+          <button
+            className="btn btn--secondary"
+            style={{ padding: "0.3rem 0.8rem" }}
+            onClick={handleReset}
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {/* Phase content */}
+      {phase === "intake" && (
+        <div className="panel" style={{ padding: "2rem" }}>
+          <div style={{ marginBottom: "1.5rem" }}>
+            <h2 style={{ fontWeight: 600, fontSize: "1.25rem", color: "var(--text-primary)", marginBottom: "0.5rem" }}>
+              New Task Execution
+            </h2>
+            <p style={{ fontSize: "0.9rem", color: "var(--text-muted)" }}>
+              Upload documents or select a demo scenario to initiate autonomous analysis.
+            </p>
+          </div>
+            <IntakeZone
+              files={files}
+              query={query}
+              isUploading={isUploading}
+              onFilesChange={setFiles}
+              onQueryChange={setQuery}
+              onSubmit={handleSubmit}
+            />
+        </div>
+      )}
+
+      {phase === "scanning" && (
+        <div className="panel" style={{ padding: "2rem" }}>
+          <ScanningPhase files={files} query={query} />
+        </div>
+      )}
+
+      {phase === "results" && state && (
+        <ResultsPhase state={state} onReset={handleReset} onSubmitApproval={onSubmitApproval} />
+      )}
+    </div>
+  );
+};
 </file>
 
 <file path="frontend/src/App.tsx">
@@ -7288,19 +6445,453 @@ backend/storage/test_chroma_db/
 .DS_Store
 </file>
 
+<file path="backend/api/agent_router.py">
+"""
+FastAPI Router for Sovereign Agent Execution, State Management, and Human Approval.
+
+CHANGES from your original:
+- Added POST /api/agent/upload  -> saves a real file to backend/storage/uploads/
+- Added GET  /api/agent/download/{filename} -> serves a real generated deliverable
+Everything else is unchanged from your existing file.
+"""
+
+import os
+import uuid
+from typing import Any, Dict, List, Optional
+
+from fastapi import APIRouter, HTTPException, status, UploadFile, File
+from fastapi.responses import FileResponse
+from pydantic import BaseModel, Field
+
+from backend.agent.state import AgentState, AgentTrace, HumanDecision
+from backend.agent.orchestrator import AgentOrchestrator
+from backend.agent.verifier import SelfVerifier
+from backend.agent.human_approval import HumanApprovalManager
+
+router = APIRouter(prefix="/api/agent", tags=["Agent Orchestrator"])
+orchestrator = AgentOrchestrator()
+
+UPLOAD_DIR = os.path.join("backend", "storage", "uploads")
+OUTPUT_DIR = os.path.join("backend", "storage", "outputs")
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+
+class RunAgentRequest(BaseModel):
+    user_query: str = Field(..., description="User query or instruction prompt")
+    input_files: Optional[List[str]] = Field(default_factory=list, description="Uploaded file paths")
+    task_id: Optional[str] = Field(None, description="Optional task ID")
+
+
+class HumanApprovalRequest(BaseModel):
+    task_id: str
+    decision: HumanDecision
+    reviewer: str = "Authorized Inspector"
+    comments: Optional[str] = None
+    modifications: Optional[Dict[str, Any]] = None
+
+
+# --------------------------------------------------------------------------
+# NEW: real file upload
+# --------------------------------------------------------------------------
+
+@router.post("/upload")
+async def upload_document(file: UploadFile = File(...)):
+    """
+    Saves an uploaded file to backend/storage/uploads/ and returns the
+    real server-side path. The frontend must call this BEFORE /run and
+    pass the returned `saved_path` in `input_files`.
+    """
+    safe_name = f"{uuid.uuid4().hex[:8]}_{file.filename}"
+    saved_path = os.path.join(UPLOAD_DIR, safe_name)
+
+    with open(saved_path, "wb") as out:
+        content = await file.read()
+        out.write(content)
+
+    return {
+        "original_filename": file.filename,
+        "saved_path": saved_path,
+        "size_bytes": len(content),
+    }
+
+
+# --------------------------------------------------------------------------
+# NEW: real file download for generated deliverables
+# --------------------------------------------------------------------------
+
+@router.get("/download/{filename}")
+def download_deliverable(filename: str):
+    """
+    Serves a real generated deliverable (docx/xlsx) from backend/storage/outputs/.
+    `filename` should match the output_path returned by the docx/xlsx tools.
+    """
+    # Prevent path traversal - only allow serving from OUTPUT_DIR by basename
+    safe_name = os.path.basename(filename)
+    file_path = os.path.join(OUTPUT_DIR, safe_name)
+
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail=f"Deliverable not found: {safe_name}")
+
+    return FileResponse(
+        path=file_path,
+        filename=safe_name,
+        media_type="application/octet-stream",
+    )
+
+
+# --------------------------------------------------------------------------
+# Existing endpoints (unchanged)
+# --------------------------------------------------------------------------
+
+@router.post("/run", response_model=AgentState, status_code=status.HTTP_200_OK)
+def run_agent_workflow(req: RunAgentRequest):
+    """Starts agent task, runs execution plan steps, and executes self-verification."""
+    state = orchestrator.create_task(query=req.user_query, input_files=req.input_files, task_id=req.task_id)
+    state = orchestrator.run_all_steps(state)
+    SelfVerifier.verify(state)
+    return state
+
+
+@router.get("/state/{task_id}", response_model=AgentState)
+def get_agent_state(task_id: str):
+    """Retrieves full agent state including findings, deliverables, and approval status."""
+    state = orchestrator.get_task(task_id)
+    if not state:
+        raise HTTPException(status_code=404, detail=f"Agent task '{task_id}' not found.")
+    return state
+
+
+@router.get("/trace/{task_id}", response_model=AgentTrace)
+def get_agent_trace(task_id: str):
+    """Retrieves live execution trace events for judge dashboard & UI visualization."""
+    state = orchestrator.get_task(task_id)
+    if not state:
+        raise HTTPException(status_code=404, detail=f"Agent task '{task_id}' not found.")
+    return state.trace
+
+
+@router.post("/approve", response_model=AgentState)
+def submit_human_approval(req: HumanApprovalRequest):
+    """Submits human approval, modification, or rejection for verified agent deliverables."""
+    state = orchestrator.get_task(req.task_id)
+    if not state:
+        raise HTTPException(status_code=404, detail=f"Agent task '{req.task_id}' not found.")
+
+    updated_state = HumanApprovalManager.submit_decision(
+        state=state,
+        decision=req.decision,
+        reviewer=req.reviewer,
+        comments=req.comments,
+        modifications=req.modifications,
+    )
+    return updated_state
+
+
+@router.get("/tools")
+def list_available_tools():
+    """Lists all sovereign local tools registered in the agent hub."""
+    return orchestrator.tool_registry.list_tools()
+
+
+@router.post("/ingest")
+def ingest_document(file_path: str, force_ocr: bool = False, force_vlm: bool = False):
+    """Phase 2 Document & Vision Ingestion API endpoint."""
+    from ingestion import extract_content
+    result = extract_content(file_path=file_path, force_ocr=force_ocr, force_vlm=force_vlm)
+    return result.model_dump()
+
+
+@router.get("/ingest/sample")
+def get_sample_ingestion():
+    """Returns sample Phase 2 document & vision ingestion result."""
+    from ingestion import extract_content
+    sample_path = "ingestion/samples/sample_plant_inspection.txt"
+    result = extract_content(file_path=sample_path)
+    return result.model_dump()
+</file>
+
+<file path="backend/main.py">
+"""
+KAVACH AI Backend Entrypoint (FastAPI).
+Sovereign Industrial AI Workbench.
+
+CHANGE from your original: added system_router (real network monitoring).
+"""
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from backend.api.agent_router import router as agent_router
+from backend.api.rag_router import router as rag_router
+from backend.api.system_router import router as system_router
+
+app = FastAPI(
+    title="KAVACH AI - Sovereign Industrial AI Workbench API",
+    description="On-premise, air-gapped agentic AI backend with 0 external cloud calls.",
+    version="1.0.0",
+)
+
+# Enable CORS for React UI
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.include_router(agent_router)
+app.include_router(rag_router)
+app.include_router(system_router)
+
+
+@app.get("/")
+def root_status():
+    return {
+        "status": "ONLINE",
+        "system": "KAVACH AI Sovereign Industrial Workbench",
+        "sovereignty_proof": "0 cloud calls / Air-gapped ready",
+    }
+
+
+@app.get("/health")
+def health_check():
+    return {"status": "healthy"}
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("backend.main:app", host="0.0.0.0", port=8000, reload=True)
+</file>
+
+<file path="frontend/src/services/api.ts">
+/**
+ * KAVACH AI — API Client
+ * All data comes from the real backend. No simulators.
+ *
+ * CHANGES from your original:
+ * - Added uploadFile() - actually sends files to the backend.
+ * - Added fetchNetworkStats() - real psutil-backed data for NetworkMonitor.
+ * - activeModelsList now describes your real 7B Ollama models instead of
+ *   fictional 32B/70B specs (update the tag strings if yours differ).
+ * - initialNetworkLogs kept ONLY as a loading-state placeholder; the
+ *   NetworkMonitor component should overwrite it with fetchNetworkStats()
+ *   on mount and poll it, not render it directly.
+ */
+
+import { AgentState, HumanDecision, ModelInfo, NetworkPacketLog } from "../types/agent";
+
+const API_BASE_URL = "http://localhost:8000/api/agent";
+const SYSTEM_BASE_URL = "http://localhost:8000/api/system";
+
+// ── Static reference data (describes the real running architecture) ───────
+
+export const activeModelsList: ModelInfo[] = [
+  {
+    id: "qwen-coder",
+    name: "Qwen2.5-Coder-7B-Instruct (Q4_K_M)",
+    specialization: "Sandbox Code Execution & Verification Scripts",
+    weightsFormat: "GGUF Q4_K_M (Ollama, local GPU)",
+    vramUsageGb: 5.5,
+    contextLength: "32k Tokens",
+    status: "ACTIVE",
+    tokenThroughput: 22.0,
+    description: "Generates and reasons about Python verification/audit scripts run in the sandbox.",
+  },
+  {
+    id: "qwen-vl",
+    name: "Qwen2.5-VL-7B (Q4_K_M)",
+    specialization: "P&ID Drawings, Scanned Reports, Defect Recognition",
+    weightsFormat: "GGUF Q4_K_M (Ollama, local GPU)",
+    vramUsageGb: 6.0,
+    contextLength: "32k Tokens",
+    status: "ACTIVE",
+    tokenThroughput: 18.0,
+    description: "Multimodal OCR & structural defect localization on industrial scans/diagrams.",
+  },
+  {
+    id: "qwen-instruct",
+    name: "Qwen2.5-7B-Instruct (Q4_K_M)",
+    specialization: "General Reasoning, SOP Compliance, Approval Note Synthesis",
+    weightsFormat: "GGUF Q4_K_M (Ollama, local GPU)",
+    vramUsageGb: 5.5,
+    contextLength: "32k Tokens",
+    status: "ROUTED",
+    tokenThroughput: 24.0,
+    description: "Synthesizes approval notes and general reasoning grounded in RAG evidence.",
+  },
+];
+
+// Placeholder shown only until the first real fetchNetworkStats() resolves.
+export const initialNetworkLogs: NetworkPacketLog[] = [];
+
+export const sampleIndustrialScenarios = [
+  {
+    id: "sc-1",
+    title: "Document Inspection",
+    category: "DOCUMENT_INSPECTION",
+    query: "Review the attached pump maintenance log. Extract the key findings, identify any anomalies, and draft an approval note for the supervisor.",
+    // NOTE: these no longer pretend a file exists client-side.
+    // The user must actually pick/drop a file in the UI; this scenario
+    // only pre-fills the query text.
+  },
+  {
+    id: "sc-2",
+    title: "Sandbox Execution",
+    category: "SANDBOX_CODE_EXECUTION",
+    query: "Analyze the vibration telemetry CSV data. Write and execute a Python script in the sandbox to identify periods where vibration exceeds the safe threshold of 0.8g.",
+  },
+  {
+    id: "sc-3",
+    title: "Multimodal Analysis",
+    category: "MULTIMODAL_ANALYSIS",
+    query: "Examine this P&ID drawing and identify the location of the pressure relief valve. Cross-reference with the safety manual to ensure it's positioned correctly.",
+  },
+];
+
+// ── Live API calls ─────────────────────────────────────────────────────────
+
+export async function fetchAvailableTools(): Promise<
+  Array<{ name: string; description: string; category: string }>
+> {
+  const response = await fetch(`${API_BASE_URL}/tools`);
+  if (!response.ok) throw new Error(`Tools fetch failed: ${response.status}`);
+  return response.json();
+}
+
+/**
+ * NEW: uploads a real File to the backend and returns the server-side path.
+ * Call this for every file BEFORE runAgentWorkflow().
+ */
+export async function uploadFile(file: File): Promise<{ saved_path: string; original_filename: string }> {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const response = await fetch(`${API_BASE_URL}/upload`, {
+    method: "POST",
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "Unknown error");
+    throw new Error(`Upload failed (${response.status}): ${detail}`);
+  }
+
+  return response.json();
+}
+
+/**
+ * Runs the agent workflow for a given query and file list.
+ * `inputFiles` must be REAL server-side paths returned by uploadFile(),
+ * not raw browser filenames.
+ */
+export async function runAgentWorkflow(
+  query: string,
+  inputFiles: string[] = []
+): Promise<AgentState> {
+  const response = await fetch(`${API_BASE_URL}/run`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ user_query: query, input_files: inputFiles }),
+  });
+
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "Unknown error");
+    throw new Error(`Agent run failed (${response.status}): ${detail}`);
+  }
+
+  return response.json();
+}
+
+export async function submitHumanApproval(
+  taskId: string,
+  decision: HumanDecision,
+  reviewer: string,
+  comments?: string,
+  modifications?: Record<string, unknown>
+): Promise<AgentState> {
+  const response = await fetch(`${API_BASE_URL}/approve`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ task_id: taskId, decision, reviewer, comments, modifications }),
+  });
+
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "Unknown error");
+    throw new Error(`Approval submission failed (${response.status}): ${detail}`);
+  }
+
+  return response.json();
+}
+
+/**
+ * NEW: real, live network connection data for the sovereignty panel.
+ */
+export async function fetchNetworkStats(): Promise<{
+  total_connections: number;
+  local_count: number;
+  external_count: number;
+  connections: Array<{ id: string; destination: string; isExternal: boolean; status: string }>;
+}> {
+  const response = await fetch(`${SYSTEM_BASE_URL}/network`);
+  if (!response.ok) throw new Error(`Network stats fetch failed: ${response.status}`);
+  return response.json();
+}
+
+/**
+ * Returns the real download URL for a generated deliverable.
+ * `filename` is the output_path returned in state.draft_deliverables.
+ */
+export function getDeliverableDownloadUrl(filename: string): string {
+  return `${API_BASE_URL}/download/${encodeURIComponent(filename)}`;
+}
+</file>
+
 <file path="backend/agent/tools_registry.py">
 """
 Tool Registry, Tool Selection Hub, and Retry Mechanism for KAVACH AI Workbench.
+
+CHANGES from your original:
+- ModelRouterTool now actually calls Ollama (was: hardcoded mock string).
+- RAGSearchTool no longer masks a genuine empty result with fake data.
+- DocxGeneratorTool / XlsxGeneratorTool now write real files via python-docx / openpyxl.
+- SandboxCodeTool now runs in a real Docker container (--network none) if Docker
+  is available, and falls back to a clearly-labeled restricted subprocess
+  (still no real isolation) if Docker isn't installed yet, so you're not
+  blocked while Docker installs in parallel.
+- OCRTool / VisionTool are unchanged - they were already real in your version.
+
+Install before running:
+    pip install python-docx openpyxl docker
 """
 
+import os
 import time
 import uuid
 import logging
+import subprocess
+import tempfile
 from abc import ABC, abstractmethod
 from typing import Any, Callable, Dict, List, Optional
+
+import httpx
+
 from backend.agent.state import ToolCallRecord
 
 logger = logging.getLogger("kavach_agent.tools")
+
+OLLAMA_URL = "http://localhost:11434"
+OUTPUT_DIR = os.path.join("backend", "storage", "outputs")
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+# Map task_type -> the exact Ollama tag your team pulled.
+# Edit these three lines if your `ollama list` shows different tag names.
+MODEL_MAP = {
+    "reasoning": "qwen2.5:7b-instruct-q4_K_M",
+    "general": "qwen2.5:7b-instruct-q4_K_M",
+    "coding": "qwen2.5-coder:7b-instruct-q4_K_M",
+    "vision": "qwen2.5vl:7b-q4_K_M",
+}
 
 
 class BaseAgentTool(ABC):
@@ -7316,6 +6907,7 @@ class BaseAgentTool(ABC):
 
 
 class MockOCRTool(BaseAgentTool):
+    """Unchanged - this was already real in your codebase."""
     name = "ocr_pdf_tool"
     description = "Extract text, tables, and handwriting from scanned PDF documents locally."
     category = "document"
@@ -7335,6 +6927,7 @@ class MockOCRTool(BaseAgentTool):
 
 
 class MockRAGSearchTool(BaseAgentTool):
+    """FIXED: no longer replaces a genuinely-empty result with fake SOP snippets."""
     name = "rag_search_tool"
     description = "Search local SOPs, manuals, and correspondence using vector embeddings."
     category = "retrieval"
@@ -7344,14 +6937,19 @@ class MockRAGSearchTool(BaseAgentTool):
             from backend.rag.store import get_vector_store
             store = get_vector_store()
             results = store.query(query_text=query, top_k=top_k)
-            if results:
+            # BUGFIX: was `if results:` which treats a real empty list as
+            # "the store failed" and substitutes fake data. `is not None`
+            # lets a genuine "no matching SOP" result through honestly.
+            if results is not None:
                 return {
                     "query": query,
                     "results": results,
                 }
         except Exception as e:
-            pass
+            logger.warning(f"RAG store unreachable, using fallback demo evidence: {e}")
 
+        # Only reached if the vector store itself raised an exception
+        # (e.g. ChromaDB not initialized yet), not on a genuine empty match.
         return {
             "query": query,
             "results": [
@@ -7372,6 +6970,7 @@ class MockRAGSearchTool(BaseAgentTool):
 
 
 class MockVisionTool(BaseAgentTool):
+    """Unchanged - this was already real in your codebase."""
     name = "vision_analysis_tool"
     description = "Analyze photographs and visual diagram components using local vision-language model."
     category = "vision"
@@ -7388,71 +6987,238 @@ class MockVisionTool(BaseAgentTool):
         }
 
 
-
 class MockSandboxCodeTool(BaseAgentTool):
+    """
+    Runs submitted code in a real Docker container (--network none) if Docker
+    is available. Falls back to a restricted subprocess (clearly labeled as
+    NOT isolated) if Docker isn't installed, so you aren't blocked while
+    Docker installs. Switch fully to the Docker path once installed.
+    """
     name = "sandbox_code_tool"
     description = "Execute python or shell script safely in isolated Docker sandbox without network access."
     category = "sandbox"
 
-    def run(self, code: str = "", language: str = "python", **kwargs) -> Dict[str, Any]:
-        return {
-            "language": language,
-            "stdout": "[SANDBOX STDOUT] Execution completed cleanly with 0 cloud calls.",
-            "stderr": "",
-            "exit_code": 0,
-            "network_calls_blocked": 0,
-        }
+    def run(self, code: str = "", language: str = "python", timeout_seconds: int = 15, **kwargs) -> Dict[str, Any]:
+        if language != "python":
+            return {
+                "language": language,
+                "stdout": "",
+                "stderr": f"Only 'python' is currently supported, got '{language}'.",
+                "exit_code": 1,
+                "network_calls_blocked": 0,
+                "sandbox_mode": "unsupported_language",
+            }
+
+        if self._docker_available():
+            return self._run_in_docker(code, timeout_seconds)
+        else:
+            logger.warning(
+                "Docker not available - running code in a restricted subprocess "
+                "instead of a real isolated container. NOT safe for untrusted code."
+            )
+            return self._run_in_subprocess_fallback(code, timeout_seconds)
+
+    @staticmethod
+    def _docker_available() -> bool:
+        try:
+            result = subprocess.run(
+                ["docker", "info"], capture_output=True, timeout=3
+            )
+            return result.returncode == 0
+        except Exception:
+            return False
+
+    def _run_in_docker(self, code: str, timeout_seconds: int) -> Dict[str, Any]:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            script_path = os.path.join(tmpdir, "script.py")
+            with open(script_path, "w") as f:
+                f.write(code)
+
+            try:
+                result = subprocess.run(
+                    [
+                        "docker", "run", "--rm",
+                        "--network", "none",
+                        "--memory", "512m",
+                        "-v", f"{tmpdir}:/sandbox:ro",
+                        "-w", "/sandbox",
+                        "python:3.11-slim",
+                        "python", "script.py",
+                    ],
+                    capture_output=True,
+                    timeout=timeout_seconds,
+                    text=True,
+                )
+                return {
+                    "language": "python",
+                    "stdout": result.stdout,
+                    "stderr": result.stderr,
+                    "exit_code": result.returncode,
+                    "network_calls_blocked": 0,  # --network none blocks all egress
+                    "sandbox_mode": "docker_isolated",
+                }
+            except subprocess.TimeoutExpired:
+                return {
+                    "language": "python",
+                    "stdout": "",
+                    "stderr": f"Execution timed out after {timeout_seconds}s and was killed.",
+                    "exit_code": -1,
+                    "network_calls_blocked": 0,
+                    "sandbox_mode": "docker_isolated",
+                }
+
+    def _run_in_subprocess_fallback(self, code: str, timeout_seconds: int) -> Dict[str, Any]:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            script_path = os.path.join(tmpdir, "script.py")
+            with open(script_path, "w") as f:
+                f.write(code)
+            try:
+                result = subprocess.run(
+                    ["python", script_path],
+                    capture_output=True,
+                    timeout=timeout_seconds,
+                    text=True,
+                )
+                return {
+                    "language": "python",
+                    "stdout": result.stdout,
+                    "stderr": result.stderr,
+                    "exit_code": result.returncode,
+                    "network_calls_blocked": 0,
+                    "sandbox_mode": "UNISOLATED_SUBPROCESS_FALLBACK",
+                }
+            except subprocess.TimeoutExpired:
+                return {
+                    "language": "python",
+                    "stdout": "",
+                    "stderr": f"Execution timed out after {timeout_seconds}s and was killed.",
+                    "exit_code": -1,
+                    "network_calls_blocked": 0,
+                    "sandbox_mode": "UNISOLATED_SUBPROCESS_FALLBACK",
+                }
 
 
 class MockDocxGeneratorTool(BaseAgentTool):
+    """Generates a real .docx file via python-docx instead of returning fake metadata."""
     name = "generate_docx_tool"
     description = "Generate official Approval Note DOCX document from structured findings."
     category = "generator"
 
     def run(self, title: str = "", findings: Optional[Dict[str, Any]] = None, output_path: str = "Approval_Note.docx", **kwargs) -> Dict[str, Any]:
+        from docx import Document
+        from docx.shared import Pt
+
+        findings = findings or {}
+        doc = Document()
+
+        doc.add_heading(title or "Sovereign Industrial Approval Note", level=1)
+
+        doc.add_heading("Executive Summary", level=2)
+        doc.add_paragraph(
+            "This approval note was generated locally by the KAVACH AI Sovereign "
+            "Workbench with zero external cloud calls, based on the findings below."
+        )
+
+        doc.add_heading("Findings", level=2)
+        if findings:
+            for key, value in findings.items():
+                p = doc.add_paragraph()
+                run = p.add_run(f"{key.replace('_', ' ').title()}: ")
+                run.bold = True
+                p.add_run(str(value))
+        else:
+            doc.add_paragraph("No findings were recorded for this task.")
+
+        doc.add_heading("Recommendation", level=2)
+        doc.add_paragraph("Findings above should be reviewed and actioned per applicable SOPs.")
+
+        doc.add_paragraph("\n\nSignature: ______________________     Date: ______________")
+
+        safe_name = os.path.basename(output_path)
+        full_path = os.path.join(OUTPUT_DIR, safe_name)
+        doc.save(full_path)
+
         return {
-            "output_path": output_path,
+            "output_path": safe_name,  # relative name, for use with /api/agent/download/{filename}
             "status": "CREATED",
-            "file_size_kb": 42.5,
-            "sections_generated": ["Header", "Executive Summary", "SOP Verification", "Recommendation"],
+            "file_size_kb": round(os.path.getsize(full_path) / 1024, 1),
+            "sections_generated": ["Header", "Executive Summary", "Findings", "Recommendation"],
         }
 
 
 class MockXlsxGeneratorTool(BaseAgentTool):
+    """Generates a real .xlsx file via openpyxl instead of returning fake metadata."""
     name = "generate_xlsx_tool"
     description = "Generate Action Tracker XLSX spreadsheet from inspection tasks."
     category = "generator"
 
     def run(self, items: Optional[List[Dict[str, Any]]] = None, output_path: str = "Action_Tracker.xlsx", **kwargs) -> Dict[str, Any]:
+        from openpyxl import Workbook
+
+        items = items or []
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Action Tracker"
+
+        headers = ["Task", "Priority", "Status"]
+        ws.append(headers)
+        for item in items:
+            ws.append([
+                item.get("task", ""),
+                item.get("priority", "MEDIUM"),
+                item.get("status", "OPEN"),
+            ])
+
+        for col_cells in ws.columns:
+            max_len = max(len(str(c.value)) for c in col_cells if c.value is not None) if col_cells else 10
+            ws.column_dimensions[col_cells[0].column_letter].width = max(12, max_len + 2)
+
+        safe_name = os.path.basename(output_path)
+        full_path = os.path.join(OUTPUT_DIR, safe_name)
+        wb.save(full_path)
+
         return {
-            "output_path": output_path,
+            "output_path": safe_name,
             "status": "CREATED",
-            "file_size_kb": 18.2,
-            "rows_written": len(items or []),
+            "file_size_kb": round(os.path.getsize(full_path) / 1024, 1),
+            "rows_written": len(items),
         }
 
 
 class MockModelRouterTool(BaseAgentTool):
+    """Now actually calls Ollama instead of returning a hardcoded string."""
     name = "model_router_tool"
     description = "Route task to specialized local model (coding, vision, general reasoning)."
     category = "routing"
 
     def run(self, task_type: str = "general", prompt: str = "", **kwargs) -> Dict[str, Any]:
-        selected_model = "llama3-8b-instruct-q4"
-        if task_type == "vision":
-            selected_model = "llava-v1.6-7b-q4"
-        elif task_type == "coding":
-            selected_model = "qwen2.5-coder-7b-q4"
+        selected_model = MODEL_MAP.get(task_type, MODEL_MAP["general"])
 
-        return {
-            "selected_model": selected_model,
-            "task_type": task_type,
-            "response": f"[MOCK MODEL RESPONSE via {selected_model}] Completed reasoning for prompt.",
-        }
+        try:
+            with httpx.Client(timeout=60.0) as client:
+                resp = client.post(
+                    f"{OLLAMA_URL}/api/generate",
+                    json={"model": selected_model, "prompt": prompt, "stream": False},
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                return {
+                    "selected_model": selected_model,
+                    "task_type": task_type,
+                    "response": data.get("response", ""),
+                }
+        except Exception as e:
+            logger.error(f"Ollama call failed for model '{selected_model}': {e}")
+            return {
+                "selected_model": selected_model,
+                "task_type": task_type,
+                "response": "",
+                "error": f"Ollama unreachable or model not loaded: {e}",
+            }
 
 
 class ToolRegistry:
-    """Registry managing available tools and execution retries."""
+    """Registry managing available tools and execution retries. Unchanged."""
 
     def __init__(self):
         self._tools: Dict[str, BaseAgentTool] = {}
@@ -7554,6 +7320,12 @@ httpx>=0.24.0
 chromadb>=0.4.0
 langchain-text-splitters>=0.0.1
 pypdf>=3.0.0
+pytesseract>=0.3.13
+pdf2image>=1.17.0
+Pillow>=12.0.0
+python-docx>=1.2.0
+openpyxl>=3.1.5
+psutil>=5.9.0
 </file>
 
 </files>

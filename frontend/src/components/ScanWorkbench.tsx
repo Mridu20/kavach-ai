@@ -15,13 +15,12 @@ import {
 } from "lucide-react";
 import type { AgentState, HumanDecision } from "../types/agent";
 import { DeliverablesPreview } from "./DeliverablesPreview";
-import { sampleIndustrialScenarios } from "../services/api";
-
+import { sampleIndustrialScenarios, uploadFile } from "../services/api";
 interface Props {
   state: AgentState | null;
   isRunning: boolean;
   error: string | null;
-  onRunTask: (query: string, files: string[]) => void;
+  onRunTask: (query: string, files: File[]) => void;
   onSubmitApproval: (
     decision: HumanDecision,
     reviewer: string,
@@ -36,10 +35,11 @@ interface Props {
 const IntakeZone: React.FC<{
   files: File[];
   query: string;
+  isUploading: boolean;
   onFilesChange: (f: File[]) => void;
   onQueryChange: (q: string) => void;
   onSubmit: () => void;
-}> = ({ files, query, onFilesChange, onQueryChange, onSubmit }) => {
+}> = ({ files, query, isUploading, onFilesChange, onQueryChange, onSubmit }) => {
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
 
@@ -63,12 +63,9 @@ const IntakeZone: React.FC<{
 
   const handleSelectScenario = (sc: (typeof sampleIndustrialScenarios)[0]) => {
     onQueryChange(sc.query);
-    // Convert string array to File array mock for UI display purposes
-    const mockFiles = sc.files.map((fName) => new File([""], fName, { type: "application/octet-stream" }));
-    onFilesChange(mockFiles);
   };
 
-  const canSubmit = files.length > 0 && query.trim().length > 10;
+const canSubmit = files.length > 0 && query.trim().length > 10 && !isUploading;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
@@ -253,7 +250,7 @@ const IntakeZone: React.FC<{
         style={{ alignSelf: "flex-end", padding: "0.7rem 1.75rem", fontSize: "0.875rem" }}
       >
         <ScanLine size={17} />
-        Start Analysis
+        {isUploading ? "Uploading..." : "Start Analysis"}
       </button>
     </div>
   );
@@ -480,12 +477,13 @@ export const ScanWorkbench: React.FC<Props> = ({
   onSubmitApproval,
   onReset,
 }) => {
-  const [files, setFiles] = useState<File[]>([]);
-  const [query, setQuery] = useState("");
+const [files, setFiles] = useState<File[]>([]);
+const [query, setQuery] = useState("");
+const [isUploading, setIsUploading] = useState(false);
 
-  const handleSubmit = () => {
-    onRunTask(query, files.map((f) => f.name));
-  };
+const handleSubmit = () => {
+  onRunTask(query, files);
+};
 
   const handleReset = () => {
     setFiles([]);
@@ -541,13 +539,14 @@ export const ScanWorkbench: React.FC<Props> = ({
               Upload documents or select a demo scenario to initiate autonomous analysis.
             </p>
           </div>
-          <IntakeZone
-            files={files}
-            query={query}
-            onFilesChange={setFiles}
-            onQueryChange={setQuery}
-            onSubmit={handleSubmit}
-          />
+            <IntakeZone
+              files={files}
+              query={query}
+              isUploading={isUploading}
+              onFilesChange={setFiles}
+              onQueryChange={setQuery}
+              onSubmit={handleSubmit}
+            />
         </div>
       )}
 
