@@ -72,248 +72,190 @@ const IntakeZone: React.FC<{
   const canSubmit = files.length > 0 && query.trim().length > 10 && !isUploading;
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "1fr 340px", gap: "1.5rem", alignItems: "start" }}>
-      {/* ── Left Column: Intake Controls & Prompts ── */}
-      <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
-        
-        {/* Demo Scenarios Selection */}
-        <div className="panel" style={{ padding: "1.25rem" }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.85rem" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", color: "var(--brand-navy)" }}>
-              <Zap size={16} color="var(--brand-blue)" />
-              <span style={{ fontSize: "0.9rem", fontWeight: 600 }}>Demo Industrial Scenarios</span>
-            </div>
-            <span style={{ fontSize: "0.75rem", color: "var(--text-dim)" }}>Click to pre-fill query</span>
-          </div>
-
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "0.75rem" }}>
-            {sampleIndustrialScenarios.map((sc) => (
-              <button
-                key={sc.id}
-                onClick={() => handleSelectScenario(sc)}
-                style={{
-                  textAlign: "left",
-                  padding: "0.85rem",
-                  background: query === sc.query ? "#f0f9ff" : "var(--bg-raised)",
-                  border: "1px solid",
-                  borderColor: query === sc.query ? "#bae6fd" : "var(--border-dim)",
-                  borderRadius: "8px",
-                  cursor: "pointer",
-                  transition: "all 0.15s ease",
-                }}
-              >
-                <div style={{ fontSize: "0.85rem", fontWeight: 600, color: "var(--text-primary)", marginBottom: "0.25rem" }}>
-                  {sc.title}
-                </div>
-                <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", lineHeight: 1.3 }}>
-                  {sc.category.replace(/_/g, " ")}
-                </div>
-              </button>
-            ))}
+    <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem", width: "100%" }}>
+      {/* Demo Scenarios Selection */}
+      <div className="panel" style={{ padding: "1.25rem" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.85rem" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", color: "var(--brand-navy)" }}>
+            <Zap size={16} color="var(--brand-blue)" />
+            <span style={{ fontSize: "0.9rem", fontWeight: 600 }}>Industrial Scenarios</span>
           </div>
         </div>
 
-        {/* File Dropzone */}
-        <div className="panel" style={{ padding: "1.25rem" }}>
-          <div style={{ fontSize: "0.9rem", fontWeight: 600, color: "var(--brand-navy)", marginBottom: "0.85rem" }}>
-            Document & Asset Intake
-          </div>
-
-          <div
-            className={`scan-dropzone ${dragging ? "drag-over" : ""} ${files.length > 0 ? "has-file" : ""}`}
-            style={{ minHeight: "180px", cursor: "pointer" }}
-            onClick={() => inputRef.current?.click()}
-            onDragOver={(e) => {
-              e.preventDefault();
-              setDragging(true);
-            }}
-            onDragLeave={() => setDragging(false)}
-            onDrop={onDrop}
-          >
-            {files.length === 0 ? (
-              <div
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  padding: "2rem 1.5rem",
-                  gap: "0.75rem",
-                  userSelect: "none",
-                }}
-              >
-                <div
-                  style={{
-                    width: "48px",
-                    height: "48px",
-                    borderRadius: "10px",
-                    background: "#f0f9ff",
-                    border: "1px solid #bae6fd",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                  }}
-                >
-                  <UploadCloud size={24} color="var(--brand-blue)" />
-                </div>
-                <div style={{ textAlign: "center" }}>
-                  <p style={{ fontWeight: 600, fontSize: "0.9rem", color: "var(--text-primary)" }}>
-                    Click or drag inspection files here
-                  </p>
-                  <p style={{ fontSize: "0.775rem", color: "var(--text-muted)", marginTop: "0.2rem" }}>
-                    Supports PDF reports, scanned images, and CSV maintenance logs
-                  </p>
-                </div>
-              </div>
-            ) : (
-              <div style={{ padding: "1rem", display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-                <div style={{ fontSize: "0.8rem", color: "var(--text-primary)", fontWeight: 600 }}>
-                  {files.length} file{files.length > 1 ? "s" : ""} selected for ingestion:
-                </div>
-                {files.map((f, i) => (
-                  <div
-                    key={i}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "0.75rem",
-                      background: "var(--bg-raised)",
-                      border: "1px solid var(--border-dim)",
-                      borderRadius: "6px",
-                      padding: "0.55rem 0.85rem",
-                    }}
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <FileText size={16} color="var(--brand-blue)" />
-                    <span
-                      style={{
-                        flex: 1,
-                        fontSize: "0.85rem",
-                        color: "var(--text-primary)",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      {f.name}
-                    </span>
-                    <button
-                      style={{
-                        background: "transparent",
-                        border: "none",
-                        color: "var(--text-dim)",
-                        cursor: "pointer",
-                        display: "flex",
-                        alignItems: "center",
-                        padding: "2px",
-                      }}
-                      onClick={() => removeFile(i)}
-                    >
-                      <X size={16} />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            <input
-              ref={inputRef}
-              type="file"
-              multiple
-              style={{ display: "none" }}
-              onChange={(e) => addFiles(e.target.files)}
-            />
-          </div>
-        </div>
-
-        {/* Audit Instructions */}
-        <div className="panel" style={{ padding: "1.25rem" }}>
-          <label
-            style={{
-              display: "block",
-              fontSize: "0.9rem",
-              color: "var(--brand-navy)",
-              fontWeight: 600,
-              marginBottom: "0.5rem",
-            }}
-          >
-            Audit Directives & Inspection Scope
-          </label>
-          <textarea
-            className="input-base"
-            rows={3}
-            value={query}
-            onChange={(e) => onQueryChange(e.target.value)}
-            placeholder="Describe inspection goals, statutory standard references (e.g. ASME / OISD), and key metrics..."
-          />
-
-          <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "1rem" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "0.75rem" }}>
+          {sampleIndustrialScenarios.map((sc) => (
             <button
-              className="btn btn--primary"
-              disabled={!canSubmit}
-              onClick={onSubmit}
-              style={{ padding: "0.65rem 1.75rem", fontSize: "0.875rem" }}
+              key={sc.id}
+              onClick={() => handleSelectScenario(sc)}
+              style={{
+                textAlign: "left",
+                padding: "0.85rem 1rem",
+                background: query === sc.query ? "#f0f9ff" : "var(--bg-raised)",
+                border: "1px solid",
+                borderColor: query === sc.query ? "#bae6fd" : "var(--border-dim)",
+                borderRadius: "8px",
+                cursor: "pointer",
+                transition: "all 0.15s ease",
+              }}
             >
-              <ScanLine size={16} />
-              {isUploading ? "Uploading Files..." : "Run Sovereign Analysis"}
+              <div style={{ fontSize: "0.85rem", fontWeight: 600, color: "var(--text-primary)" }}>
+                {sc.title}
+              </div>
             </button>
-          </div>
+          ))}
         </div>
       </div>
 
-      {/* ── Right Column: Enterprise Air-Gap Compliance Card ── */}
-      <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-        <div className="panel" style={{ padding: "1.25rem", background: "#ffffff" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "1rem" }}>
-            <ShieldCheck size={20} color="var(--green-600)" />
-            <span style={{ fontSize: "0.95rem", fontWeight: 700, color: "var(--brand-navy)" }}>
-              Sovereign Guardrails
-            </span>
-          </div>
-
-          <div style={{ display: "flex", flexDirection: "column", gap: "0.85rem", fontSize: "0.8rem", color: "var(--text-secondary)" }}>
-            <div style={{ display: "flex", gap: "0.6rem", alignItems: "flex-start" }}>
-              <Lock size={15} color="var(--brand-blue)" style={{ flexShrink: 0, marginTop: "2px" }} />
-              <div>
-                <strong>100% Offline Processing:</strong> Zero outbound network sockets or external cloud LLM API calls.
-              </div>
-            </div>
-
-            <div style={{ display: "flex", gap: "0.6rem", alignItems: "flex-start" }}>
-              <BookOpen size={15} color="var(--brand-indigo)" style={{ flexShrink: 0, marginTop: "2px" }} />
-              <div>
-                <strong>Statutory Grounding:</strong> Grounded against ASME Sec VIII & OISD-118 compliance norms.
-              </div>
-            </div>
-
-            <div style={{ display: "flex", gap: "0.6rem", alignItems: "flex-start" }}>
-              <Cpu size={15} color="var(--amber-500)" style={{ flexShrink: 0, marginTop: "2px" }} />
-              <div>
-                <strong>Auto Model Routing:</strong> Dynamic selection between Qwen-2.5-Coder & Vision models.
-              </div>
-            </div>
-          </div>
+      {/* File Dropzone */}
+      <div className="panel" style={{ padding: "1.25rem" }}>
+        <div style={{ fontSize: "0.9rem", fontWeight: 600, color: "var(--brand-navy)", marginBottom: "0.85rem" }}>
+          Document & Asset Intake
         </div>
 
         <div
-          className="panel"
+          className={`scan-dropzone ${dragging ? "drag-over" : ""} ${files.length > 0 ? "has-file" : ""}`}
+          style={{ minHeight: "180px", cursor: "pointer" }}
+          onClick={() => inputRef.current?.click()}
+          onDragOver={(e) => {
+            e.preventDefault();
+            setDragging(true);
+          }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={onDrop}
+        >
+          {files.length === 0 ? (
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                padding: "2rem 1.5rem",
+                gap: "0.75rem",
+                userSelect: "none",
+              }}
+            >
+              <div
+                style={{
+                  width: "48px",
+                  height: "48px",
+                  borderRadius: "10px",
+                  background: "#f0f9ff",
+                  border: "1px solid #bae6fd",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <UploadCloud size={24} color="var(--brand-blue)" />
+              </div>
+              <div style={{ textAlign: "center" }}>
+                <p style={{ fontWeight: 600, fontSize: "0.9rem", color: "var(--text-primary)" }}>
+                  Click or drag inspection files here
+                </p>
+                <p style={{ fontSize: "0.775rem", color: "var(--text-muted)", marginTop: "0.2rem" }}>
+                  Supports PDF reports, scanned images, and CSV maintenance logs
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div style={{ padding: "1rem", display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+              <div style={{ fontSize: "0.8rem", color: "var(--text-primary)", fontWeight: 600 }}>
+                {files.length} file{files.length > 1 ? "s" : ""} selected for ingestion:
+              </div>
+              {files.map((f, i) => (
+                <div
+                  key={i}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "0.75rem",
+                    background: "var(--bg-raised)",
+                    border: "1px solid var(--border-dim)",
+                    borderRadius: "6px",
+                    padding: "0.55rem 0.85rem",
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <FileText size={16} color="var(--brand-blue)" />
+                  <span
+                    style={{
+                      flex: 1,
+                      fontSize: "0.85rem",
+                      color: "var(--text-primary)",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {f.name}
+                  </span>
+                  <button
+                    style={{
+                      background: "transparent",
+                      border: "none",
+                      color: "var(--text-dim)",
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      padding: "2px",
+                    }}
+                    onClick={() => removeFile(i)}
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <input
+            ref={inputRef}
+            type="file"
+            multiple
+            style={{ display: "none" }}
+            onChange={(e) => addFiles(e.target.files)}
+          />
+        </div>
+      </div>
+
+      {/* Audit Instructions */}
+      <div className="panel" style={{ padding: "1.25rem" }}>
+        <label
           style={{
-            padding: "1.25rem",
-            background: "#f0f9ff",
-            borderColor: "#bae6fd",
+            display: "block",
+            fontSize: "0.9rem",
+            color: "var(--brand-navy)",
+            fontWeight: 600,
+            marginBottom: "0.5rem",
           }}
         >
-          <div style={{ fontSize: "0.85rem", fontWeight: 700, color: "var(--brand-navy)", marginBottom: "0.4rem" }}>
-            Presentation Readiness
-          </div>
-          <p style={{ fontSize: "0.775rem", color: "var(--text-muted)", lineHeight: 1.4 }}>
-            Generates downloadable official <strong>Approval Memorandum (.DOCX)</strong>, <strong>Maintenance Action Register (.XLSX)</strong>, and <strong>Sandbox Execution Logs</strong>.
-          </p>
+          Audit Directives & Inspection Scope
+        </label>
+        <textarea
+          className="input-base"
+          rows={3}
+          value={query}
+          onChange={(e) => onQueryChange(e.target.value)}
+          placeholder="Describe inspection goals, statutory standard references (e.g. ASME / OISD), and key metrics..."
+        />
+
+        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "1rem" }}>
+          <button
+            className="btn btn--primary"
+            disabled={!canSubmit}
+            onClick={onSubmit}
+            style={{ padding: "0.65rem 1.75rem", fontSize: "0.875rem" }}
+          >
+            <ScanLine size={16} />
+            {isUploading ? "Uploading Files..." : "Run Sovereign Analysis"}
+          </button>
         </div>
       </div>
     </div>
   );
 };
+
 
 // ── Phase 2: Scanning in Progress ────────────────────────────────────────────
 

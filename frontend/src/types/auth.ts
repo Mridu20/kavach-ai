@@ -4,9 +4,7 @@ export interface UserProfile {
   email: string;
   employeeId: string;
   role: string;
-  organization: string;
   avatarUrl?: string;
-  provider: "local" | "google";
 }
 
 export interface LoginCredentials {
@@ -20,7 +18,6 @@ export interface SignUpFormData {
   employeeId: string;
   password: string;
   confirmPassword: string;
-  organization?: string;
 }
 
 export interface PasswordStrength {

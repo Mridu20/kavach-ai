@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { ShieldCheck, Server, Search, Radio, Cpu, Activity, User, LogOut } from "lucide-react";
+import { ShieldCheck, Wifi, WifiOff, Activity, User, LogOut } from "lucide-react";
 import { fetchAvailableTools } from "../services/api";
 import type { UserProfile } from "../types/auth";
 
@@ -31,9 +31,9 @@ export const Navbar: React.FC<NavbarProps> = ({
   }, []);
 
   const tabs = [
-    { id: "scanner" as NavTab, label: "Analysis Workbench", icon: <Search size={16} /> },
-    { id: "models" as NavTab, label: "Model Routing Matrix", icon: <Cpu size={16} /> },
-    { id: "network" as NavTab, label: "Air-Gap Network Audit", icon: <Radio size={16} /> },
+    { id: "scanner" as NavTab, label: "Analysis Workbench" },
+    { id: "models" as NavTab, label: "Model Routing Matrix" },
+    { id: "network" as NavTab, label: "Air-Gap Network Audit" },
   ];
 
   return (
@@ -60,13 +60,15 @@ export const Navbar: React.FC<NavbarProps> = ({
         }}
       >
         {/* ── Brand ── */}
-        <div style={{ display: "flex", alignItems: "center", gap: "0.85rem", flexShrink: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", flexShrink: 0 }}>
           <div
             style={{
-              width: "36px",
-              height: "36px",
-              borderRadius: "8px",
-              background: "var(--brand-navy)",
+              width: "38px",
+              height: "38px",
+              borderRadius: "10px",
+              background: "linear-gradient(135deg, #0f172a 0%, #1e293b 100%)",
+              boxShadow: "0 2px 8px rgba(15, 23, 42, 0.2)",
+              border: "1px solid #334155",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
@@ -76,40 +78,29 @@ export const Navbar: React.FC<NavbarProps> = ({
             <ShieldCheck size={22} color="#ffffff" />
           </div>
 
-          <div>
-            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-              <span
-                style={{
-                  fontWeight: 700,
-                  fontSize: "1.05rem",
-                  color: "var(--brand-navy)",
-                  letterSpacing: "-0.01em",
-                }}
-              >
-                KAVACH AI
-              </span>
-              <span
-                style={{
-                  fontSize: "0.7rem",
-                  fontWeight: 600,
-                  padding: "0.15rem 0.45rem",
-                  borderRadius: "4px",
-                  background: "#f0f9ff",
-                  color: "var(--brand-blue)",
-                  border: "1px solid #bae6fd",
-                }}
-              >
-                SOVEREIGN WORKBENCH
-              </span>
-            </div>
-            <div
+          <div style={{ display: "flex", flexDirection: "column" }}>
+            <span
               style={{
-                fontSize: "0.725rem",
-                color: "var(--text-dim)",
+                fontWeight: 800,
+                fontSize: "1.15rem",
+                color: "#0f172a",
+                letterSpacing: "-0.02em",
+                fontFamily: "var(--font-sans)",
+                lineHeight: 1.1,
               }}
             >
-              Statutory Inspection & Air-Gapped AI Audit
-            </div>
+              KAVACH AI
+            </span>
+            <span
+              style={{
+                fontSize: "0.72rem",
+                color: "var(--text-muted)",
+                fontWeight: 500,
+                marginTop: "1px",
+              }}
+            >
+              Your data. Your hardware. Your AI.
+            </span>
           </div>
         </div>
 
@@ -137,9 +128,6 @@ export const Navbar: React.FC<NavbarProps> = ({
                   transition: "all 0.15s ease-in-out",
                 }}
               >
-                {React.cloneElement(tab.icon, {
-                  color: isActive ? "var(--brand-blue)" : "currentColor",
-                })}
                 {tab.label}
                 {tab.id === "scanner" && isRunning && (
                   <Activity size={14} color="var(--brand-blue)" style={{ animation: "spin 1.5s linear infinite" }} />
@@ -152,21 +140,19 @@ export const Navbar: React.FC<NavbarProps> = ({
         {/* ── User Profile & System Status Bar ── */}
         <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", flexShrink: 0 }}>
           <div
+            title={toolsLoaded ? "System Online" : "System Offline"}
             style={{
               display: "flex",
               alignItems: "center",
-              gap: "0.45rem",
-              padding: "0.35rem 0.75rem",
+              justifyContent: "center",
+              padding: "0.45rem 0.65rem",
               background: toolsLoaded ? "#f0fdf4" : "#fef2f2",
               border: `1px solid ${toolsLoaded ? "#bbf7d0" : "#fecaca"}`,
               borderRadius: "6px",
-              fontSize: "0.8rem",
-              fontWeight: 500,
               color: toolsLoaded ? "var(--green-600)" : "var(--red-500)",
             }}
           >
-            <Server size={14} />
-            <span>{toolsLoaded ? "Engine Active" : "Offline"}</span>
+            {toolsLoaded ? <Wifi size={16} /> : <WifiOff size={16} />}
           </div>
 
           {user ? (
@@ -225,5 +211,6 @@ export const Navbar: React.FC<NavbarProps> = ({
     </header>
   );
 };
+
 
 
