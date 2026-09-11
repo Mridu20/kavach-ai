@@ -140,7 +140,7 @@ class AgentOrchestrator:
         elif tool_name == "sandbox_code_tool":
             return {"code": "# Auto-generated verification script\nprint('Zero cloud calls confirmed.')"}
         elif tool_name == "generate_docx_tool":
-            return {"title": f"Approval Note: {state.user_query}", "findings": state.findings, "output_path": f"{state.task_id}_Approval_Note.docx"}
+            return {"title": f"Approval Note: {state.user_query}", "findings": state.findings, "evidence": state.retrieved_evidence, "task_id": state.task_id, "output_path": f"{state.task_id}_Approval_Note.docx"}
         elif tool_name == "generate_xlsx_tool":
             return {"items": [{"task": "Inspect Weld B-12", "priority": "HIGH"}], "output_path": f"{state.task_id}_Action_Tracker.xlsx"}
         elif tool_name == "model_router_tool":

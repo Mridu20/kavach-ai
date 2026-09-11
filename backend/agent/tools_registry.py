@@ -1,15 +1,47 @@
 """
 Tool Registry, Tool Selection Hub, and Retry Mechanism for KAVACH AI Workbench.
+
+CHANGES from your original:
+- ModelRouterTool now actually calls Ollama (was: hardcoded mock string).
+- RAGSearchTool no longer masks a genuine empty result with fake data.
+- DocxGeneratorTool / XlsxGeneratorTool now write real files via python-docx / openpyxl.
+- SandboxCodeTool now runs in a real Docker container (--network none) if Docker
+  is available, and falls back to a clearly-labeled restricted subprocess
+  (still no real isolation) if Docker isn't installed yet, so you're not
+  blocked while Docker installs in parallel.
+- OCRTool / VisionTool are unchanged - they were already real in your version.
+
+Install before running:
+    pip install python-docx openpyxl docker
 """
 
+import os
 import time
 import uuid
 import logging
+import subprocess
+import tempfile
 from abc import ABC, abstractmethod
 from typing import Any, Callable, Dict, List, Optional
+
+import httpx
+
 from backend.agent.state import ToolCallRecord
 
 logger = logging.getLogger("kavach_agent.tools")
+
+OLLAMA_URL = "http://localhost:11434"
+OUTPUT_DIR = os.path.join("backend", "storage", "outputs")
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+# Map task_type -> the exact Ollama tag your team pulled.
+# Edit these three lines if your `ollama list` shows different tag names.
+MODEL_MAP = {
+    "reasoning": "qwen2.5:7b-instruct-q4_K_M",
+    "general": "qwen2.5:7b-instruct-q4_K_M",
+    "coding": "qwen2.5-coder:7b-instruct-q4_K_M",
+    "vision": "qwen2.5vl:7b-q4_K_M",
+}
 
 
 class BaseAgentTool(ABC):
@@ -25,6 +57,7 @@ class BaseAgentTool(ABC):
 
 
 class MockOCRTool(BaseAgentTool):
+    """Unchanged - this was already real in your codebase."""
     name = "ocr_pdf_tool"
     description = "Extract text, tables, and handwriting from scanned PDF documents locally."
     category = "document"
@@ -44,6 +77,7 @@ class MockOCRTool(BaseAgentTool):
 
 
 class MockRAGSearchTool(BaseAgentTool):
+    """FIXED: no longer replaces a genuinely-empty result with fake SOP snippets."""
     name = "rag_search_tool"
     description = "Search local SOPs, manuals, and correspondence using vector embeddings."
     category = "retrieval"
@@ -53,14 +87,19 @@ class MockRAGSearchTool(BaseAgentTool):
             from backend.rag.store import get_vector_store
             store = get_vector_store()
             results = store.query(query_text=query, top_k=top_k)
-            if results:
+            # BUGFIX: was `if results:` which treats a real empty list as
+            # "the store failed" and substitutes fake data. `is not None`
+            # lets a genuine "no matching SOP" result through honestly.
+            if results is not None:
                 return {
                     "query": query,
                     "results": results,
                 }
         except Exception as e:
-            pass
+            logger.warning(f"RAG store unreachable, using fallback demo evidence: {e}")
 
+        # Only reached if the vector store itself raised an exception
+        # (e.g. ChromaDB not initialized yet), not on a genuine empty match.
         return {
             "query": query,
             "results": [
@@ -81,6 +120,7 @@ class MockRAGSearchTool(BaseAgentTool):
 
 
 class MockVisionTool(BaseAgentTool):
+    """Unchanged - this was already real in your codebase."""
     name = "vision_analysis_tool"
     description = "Analyze photographs and visual diagram components using local vision-language model."
     category = "vision"
@@ -97,71 +137,260 @@ class MockVisionTool(BaseAgentTool):
         }
 
 
-
 class MockSandboxCodeTool(BaseAgentTool):
+    """
+    Runs submitted code in a real Docker container (--network none) if Docker
+    is available. Falls back to a restricted subprocess (clearly labeled as
+    NOT isolated) if Docker isn't installed, so you aren't blocked while
+    Docker installs. Switch fully to the Docker path once installed.
+    """
     name = "sandbox_code_tool"
     description = "Execute python or shell script safely in isolated Docker sandbox without network access."
     category = "sandbox"
 
-    def run(self, code: str = "", language: str = "python", **kwargs) -> Dict[str, Any]:
-        return {
-            "language": language,
-            "stdout": "[SANDBOX STDOUT] Execution completed cleanly with 0 cloud calls.",
-            "stderr": "",
-            "exit_code": 0,
-            "network_calls_blocked": 0,
-        }
+    def run(self, code: str = "", language: str = "python", timeout_seconds: int = 15, **kwargs) -> Dict[str, Any]:
+        if language != "python":
+            return {
+                "language": language,
+                "stdout": "",
+                "stderr": f"Only 'python' is currently supported, got '{language}'.",
+                "exit_code": 1,
+                "network_calls_blocked": 0,
+                "sandbox_mode": "unsupported_language",
+            }
+
+        if self._docker_available():
+            return self._run_in_docker(code, timeout_seconds)
+        else:
+            logger.warning(
+                "Docker not available - running code in a restricted subprocess "
+                "instead of a real isolated container. NOT safe for untrusted code."
+            )
+            return self._run_in_subprocess_fallback(code, timeout_seconds)
+
+    @staticmethod
+    def _docker_available() -> bool:
+        try:
+            result = subprocess.run(
+                ["docker", "info"], capture_output=True, timeout=3
+            )
+            return result.returncode == 0
+        except Exception:
+            return False
+
+    def _run_in_docker(self, code: str, timeout_seconds: int) -> Dict[str, Any]:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            script_path = os.path.join(tmpdir, "script.py")
+            with open(script_path, "w") as f:
+                f.write(code)
+
+            try:
+                result = subprocess.run(
+                    [
+                        "docker", "run", "--rm",
+                        "--network", "none",
+                        "--memory", "512m",
+                        "-v", f"{tmpdir}:/sandbox:ro",
+                        "-w", "/sandbox",
+                        "python:3.11-slim",
+                        "python", "script.py",
+                    ],
+                    capture_output=True,
+                    timeout=timeout_seconds,
+                    text=True,
+                )
+                return {
+                    "language": "python",
+                    "stdout": result.stdout,
+                    "stderr": result.stderr,
+                    "exit_code": result.returncode,
+                    "network_calls_blocked": 0,  # --network none blocks all egress
+                    "sandbox_mode": "docker_isolated",
+                }
+            except subprocess.TimeoutExpired:
+                return {
+                    "language": "python",
+                    "stdout": "",
+                    "stderr": f"Execution timed out after {timeout_seconds}s and was killed.",
+                    "exit_code": -1,
+                    "network_calls_blocked": 0,
+                    "sandbox_mode": "docker_isolated",
+                }
+
+    def _run_in_subprocess_fallback(self, code: str, timeout_seconds: int) -> Dict[str, Any]:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            script_path = os.path.join(tmpdir, "script.py")
+            with open(script_path, "w") as f:
+                f.write(code)
+            try:
+                result = subprocess.run(
+                    ["python", script_path],
+                    capture_output=True,
+                    timeout=timeout_seconds,
+                    text=True,
+                )
+                return {
+                    "language": "python",
+                    "stdout": result.stdout,
+                    "stderr": result.stderr,
+                    "exit_code": result.returncode,
+                    "network_calls_blocked": 0,
+                    "sandbox_mode": "UNISOLATED_SUBPROCESS_FALLBACK",
+                }
+            except subprocess.TimeoutExpired:
+                return {
+                    "language": "python",
+                    "stdout": "",
+                    "stderr": f"Execution timed out after {timeout_seconds}s and was killed.",
+                    "exit_code": -1,
+                    "network_calls_blocked": 0,
+                    "sandbox_mode": "UNISOLATED_SUBPROCESS_FALLBACK",
+                }
 
 
 class MockDocxGeneratorTool(BaseAgentTool):
+    """Generates a real .docx file via python-docx instead of returning fake metadata."""
     name = "generate_docx_tool"
     description = "Generate official Approval Note DOCX document from structured findings."
     category = "generator"
 
     def run(self, title: str = "", findings: Optional[Dict[str, Any]] = None, output_path: str = "Approval_Note.docx", **kwargs) -> Dict[str, Any]:
+        from docx import Document
+        from docx.shared import Pt
+
+        findings = findings or {}
+        doc = Document()
+
+        doc.add_heading(title or "Sovereign Industrial Approval Note", level=1)
+
+        doc.add_heading("Executive Summary", level=2)
+        doc.add_paragraph(
+            "This approval note was generated locally by the KAVACH AI Sovereign "
+            "Workbench with zero external cloud calls, based on the findings below."
+        )
+
+        doc.add_heading("Findings", level=2)
+        if findings:
+            for key, value in findings.items():
+                p = doc.add_paragraph()
+                run = p.add_run(f"{key.replace('_', ' ').title()}: ")
+                run.bold = True
+                p.add_run(str(value))
+        else:
+            doc.add_paragraph("No findings were recorded for this task.")
+
+        evidence = kwargs.get("evidence", [])
+        if evidence:
+            doc.add_heading("SOP Evidence & Citations", level=2)
+            for ev in evidence:
+                if hasattr(ev, 'source_doc'):
+                    doc.add_paragraph(f"[{ev.source_doc}, p.{ev.page_num}] {ev.snippet}")
+                elif isinstance(ev, dict):
+                    doc.add_paragraph(f"[{ev.get('source_doc', 'Unknown')}, p.{ev.get('page_num', 'N/A')}] {ev.get('snippet', '')}")
+
+        doc.add_heading("Recommendation", level=2)
+        doc.add_paragraph("Findings above should be reviewed and actioned per applicable SOPs.")
+
+        doc.add_paragraph("\n\nSignature: ______________________     Date: ______________")
+
+        safe_name = os.path.basename(output_path)
+        full_path = os.path.join(OUTPUT_DIR, safe_name)
+        doc.save(full_path)
+
         return {
-            "output_path": output_path,
+            "output_path": safe_name,  # relative name, for use with /api/agent/download/{filename}
             "status": "CREATED",
-            "file_size_kb": 42.5,
-            "sections_generated": ["Header", "Executive Summary", "SOP Verification", "Recommendation"],
+            "file_size_kb": round(os.path.getsize(full_path) / 1024, 1),
+            "sections_generated": ["Header", "Executive Summary", "Findings", "Recommendation"],
         }
 
 
 class MockXlsxGeneratorTool(BaseAgentTool):
+    """Generates a real .xlsx file via openpyxl instead of returning fake metadata."""
     name = "generate_xlsx_tool"
     description = "Generate Action Tracker XLSX spreadsheet from inspection tasks."
     category = "generator"
 
     def run(self, items: Optional[List[Dict[str, Any]]] = None, output_path: str = "Action_Tracker.xlsx", **kwargs) -> Dict[str, Any]:
+        from openpyxl import Workbook
+
+        items = items or []
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Action Tracker"
+
+        headers = ["Task", "Priority", "Status"]
+        ws.append(headers)
+        for item in items:
+            ws.append([
+                item.get("task", ""),
+                item.get("priority", "MEDIUM"),
+                item.get("status", "OPEN"),
+            ])
+
+        for col_cells in ws.columns:
+            max_len = max(len(str(c.value)) for c in col_cells if c.value is not None) if col_cells else 10
+            ws.column_dimensions[col_cells[0].column_letter].width = max(12, max_len + 2)
+
+        safe_name = os.path.basename(output_path)
+        full_path = os.path.join(OUTPUT_DIR, safe_name)
+        wb.save(full_path)
+
         return {
-            "output_path": output_path,
+            "output_path": safe_name,
             "status": "CREATED",
-            "file_size_kb": 18.2,
-            "rows_written": len(items or []),
+            "file_size_kb": round(os.path.getsize(full_path) / 1024, 1),
+            "rows_written": len(items),
         }
 
 
 class MockModelRouterTool(BaseAgentTool):
+    """Now actually calls Ollama instead of returning a hardcoded string."""
     name = "model_router_tool"
     description = "Route task to specialized local model (coding, vision, general reasoning)."
     category = "routing"
 
-    def run(self, task_type: str = "general", prompt: str = "", **kwargs) -> Dict[str, Any]:
-        selected_model = "llama3-8b-instruct-q4"
-        if task_type == "vision":
-            selected_model = "llava-v1.6-7b-q4"
-        elif task_type == "coding":
-            selected_model = "qwen2.5-coder-7b-q4"
+    def _unload_other_models(self, client: httpx.Client, selected_model: str):
+        for model in set(MODEL_MAP.values()):
+            if model != selected_model:
+                try:
+                    client.post(
+                        f"{OLLAMA_URL}/api/generate",
+                        json={"model": model, "keep_alive": 0},
+                        timeout=5.0
+                    )
+                except Exception:
+                    pass
 
-        return {
-            "selected_model": selected_model,
-            "task_type": task_type,
-            "response": f"[MOCK MODEL RESPONSE via {selected_model}] Completed reasoning for prompt.",
-        }
+    def run(self, task_type: str = "general", prompt: str = "", **kwargs) -> Dict[str, Any]:
+        selected_model = MODEL_MAP.get(task_type, MODEL_MAP["general"])
+
+        try:
+            with httpx.Client(timeout=120.0) as client:
+                self._unload_other_models(client, selected_model)
+                resp = client.post(
+                    f"{OLLAMA_URL}/api/generate",
+                    json={"model": selected_model, "prompt": prompt, "stream": False, "keep_alive": "5m"},
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                return {
+                    "selected_model": selected_model,
+                    "task_type": task_type,
+                    "response": data.get("response", ""),
+                }
+        except Exception as e:
+            logger.error(f"Ollama call failed for model '{selected_model}': {e}")
+            return {
+                "selected_model": selected_model,
+                "task_type": task_type,
+                "response": "",
+                "error": f"Ollama unreachable or model not loaded: {e}",
+            }
 
 
 class ToolRegistry:
-    """Registry managing available tools and execution retries."""
+    """Registry managing available tools and execution retries. Unchanged."""
 
     def __init__(self):
         self._tools: Dict[str, BaseAgentTool] = {}

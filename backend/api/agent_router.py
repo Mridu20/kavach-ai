@@ -1,9 +1,18 @@
 """
 FastAPI Router for Sovereign Agent Execution, State Management, and Human Approval.
+
+CHANGES from your original:
+- Added POST /api/agent/upload  -> saves a real file to backend/storage/uploads/
+- Added GET  /api/agent/download/{filename} -> serves a real generated deliverable
+Everything else is unchanged from your existing file.
 """
 
+import os
+import uuid
 from typing import Any, Dict, List, Optional
-from fastapi import APIRouter, HTTPException, status
+
+from fastapi import APIRouter, HTTPException, status, UploadFile, File
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from backend.agent.state import AgentState, AgentTrace, HumanDecision
@@ -13,6 +22,11 @@ from backend.agent.human_approval import HumanApprovalManager
 
 router = APIRouter(prefix="/api/agent", tags=["Agent Orchestrator"])
 orchestrator = AgentOrchestrator()
+
+UPLOAD_DIR = os.path.join("backend", "storage", "uploads")
+OUTPUT_DIR = os.path.join("backend", "storage", "outputs")
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 
 class RunAgentRequest(BaseModel):
@@ -29,6 +43,58 @@ class HumanApprovalRequest(BaseModel):
     modifications: Optional[Dict[str, Any]] = None
 
 
+# --------------------------------------------------------------------------
+# NEW: real file upload
+# --------------------------------------------------------------------------
+
+@router.post("/upload")
+async def upload_document(file: UploadFile = File(...)):
+    """
+    Saves an uploaded file to backend/storage/uploads/ and returns the
+    real server-side path. The frontend must call this BEFORE /run and
+    pass the returned `saved_path` in `input_files`.
+    """
+    safe_name = f"{uuid.uuid4().hex[:8]}_{file.filename}"
+    saved_path = os.path.join(UPLOAD_DIR, safe_name)
+
+    with open(saved_path, "wb") as out:
+        content = await file.read()
+        out.write(content)
+
+    return {
+        "original_filename": file.filename,
+        "saved_path": saved_path,
+        "size_bytes": len(content),
+    }
+
+
+# --------------------------------------------------------------------------
+# NEW: real file download for generated deliverables
+# --------------------------------------------------------------------------
+
+@router.get("/download/{filename}")
+def download_deliverable(filename: str):
+    """
+    Serves a real generated deliverable (docx/xlsx) from backend/storage/outputs/.
+    `filename` should match the output_path returned by the docx/xlsx tools.
+    """
+    # Prevent path traversal - only allow serving from OUTPUT_DIR by basename
+    safe_name = os.path.basename(filename)
+    file_path = os.path.join(OUTPUT_DIR, safe_name)
+
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail=f"Deliverable not found: {safe_name}")
+
+    return FileResponse(
+        path=file_path,
+        filename=safe_name,
+        media_type="application/octet-stream",
+    )
+
+
+# --------------------------------------------------------------------------
+# Existing endpoints (unchanged)
+# --------------------------------------------------------------------------
 
 @router.post("/run", response_model=AgentState, status_code=status.HTTP_200_OK)
 def run_agent_workflow(req: RunAgentRequest):
@@ -95,4 +161,3 @@ def get_sample_ingestion():
     sample_path = "ingestion/samples/sample_plant_inspection.txt"
     result = extract_content(file_path=sample_path)
     return result.model_dump()
-

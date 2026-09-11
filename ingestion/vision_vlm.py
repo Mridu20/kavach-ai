@@ -59,11 +59,20 @@ class QwenVisionEngine:
                 "model": cls.VLM_MODEL_NAME,
                 "prompt": system_prompt,
                 "stream": False,
+                "keep_alive": "5m"
             }
             if b64_image:
                 payload["images"] = [b64_image]
 
-            with httpx.Client(timeout=15.0) as client:
+            with httpx.Client(timeout=120.0) as client:
+                # Unload reasoning and coding models to save VRAM
+                base_url = target_url.replace("/api/generate", "")
+                try:
+                    for m in ["qwen2.5:7b-instruct-q4_K_M", "qwen2.5-coder:7b-instruct-q4_K_M"]:
+                        client.post(f"{base_url}/api/generate", json={"model": m, "keep_alive": 0}, timeout=5.0)
+                except Exception:
+                    pass
+
                 response = client.post(target_url, json=payload)
                 if response.status_code == 200:
                     resp_data = response.json()
