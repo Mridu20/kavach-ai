@@ -113,24 +113,10 @@ export function App() {
     decision: HumanDecision,
     reviewer: string,
     comments?: string,
-    modifications?: Record<string, unknown>
+    modifications?: Record<string, any>
   ) => {
-    if (!agentState) return;
-    try {
-      const activeReviewer = user ? `${user.fullName} (${user.employeeId})` : reviewer;
-      const updated = await submitHumanApproval(
-        agentState.task_id,
-        decision,
-        activeReviewer,
-        comments,
-        modifications
-      );
-      setAgentState(updated);
-      showToast(`Decision recorded: ${decision}`);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Approval submission failed.";
-      showToast(msg);
-    }
+    // No-op for demo: auto‑approval handled elsewhere.
+    console.log('Auto‑approval skipped in demo.');
   };
 
   const handleReset = () => {
