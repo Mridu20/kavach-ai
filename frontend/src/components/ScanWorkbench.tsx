@@ -18,6 +18,10 @@ import {
   BookOpen,
   Wifi,
 } from "lucide-react";
+import ReactMarkdown from 'react-markdown';
+import rehypeHighlight from 'rehype-highlight';
+import 'highlight.js/styles/github.css';
+import './markdown.css';
 import type { AgentState, HumanDecision } from "../types/agent";
 import { DeliverablesPreview } from "./DeliverablesPreview";
 import { AgentThinkingSteps } from "./AgentThinkingSteps";
@@ -431,6 +435,7 @@ export const ScanWorkbench: React.FC<Props> = ({
 
               {/* 1. WRITTEN ANSWER (ALWAYS PRESENT) */}
               <div
+                className="markdown-body"
                 style={{
                   fontSize: "0.925rem",
                   color: "#1e293b",
@@ -439,10 +444,9 @@ export const ScanWorkbench: React.FC<Props> = ({
                   border: "1px solid var(--border-dim)",
                   borderRadius: "8px",
                   padding: "1.5rem",
-                  whiteSpace: "pre-wrap",
                 }}
               >
-                {state.text_response || state.findings?.synthesized_analysis || "Inspection analysis completed."}
+                <ReactMarkdown children={state.text_response || state.findings?.synthesized_analysis || "Inspection analysis completed."} rehypePlugins={[rehypeHighlight]} />
               </div>
 
               {/* 2. VISIBLE STEP-BY-STEP CALCULATION CARD (IF APPLICABLE) */}
