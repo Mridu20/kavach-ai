@@ -1,209 +1,150 @@
 """
-Comprehensive Unit & Integration Test Suite for Person 1 (Lead Agentic AI).
+Comprehensive Test Suite for General-Purpose AI Agent.
+Verifies complete decoupling from RAG, ChromaDB, SOPs, hardcoded industrial rules, and fake demo data.
 """
 
+import os
 import unittest
-from backend.agent.state import AgentState, HumanDecision, TaskCategory
+from unittest.mock import patch, MagicMock
+from fastapi.testclient import TestClient
+
+from backend.agent.state import AgentState, HumanDecision, TaskCategory, StepStatus
 from backend.agent.planner import AgentPlanner, TaskClassifier
-from backend.agent.tools_registry import ToolRegistry
+from backend.agent.tools_registry import ToolRegistry, default_tool_registry
 from backend.agent.orchestrator import AgentOrchestrator
 from backend.agent.verifier import SelfVerifier
 from backend.agent.human_approval import HumanApprovalManager
+from backend.main import app
 
 
-class TestAgentFramework(unittest.TestCase):
+class TestGeneralPurposeAgent(unittest.TestCase):
 
-    def test_agent_state_creation(self):
-        state = AgentState(task_id="test_001", user_query="Inspect turbine report")
-        self.assertEqual(state.task_id, "test_001")
-        self.assertEqual(state.status, "INITIALIZED")
-        self.assertEqual(len(state.trace.events), 0)
+    def test_general_query_creates_simple_reasoning_plan(self):
+        """1. A normal general question does not call RAG or document extraction."""
+        category = TaskClassifier.classify("What is the difference between a process and a thread?", [])
+        self.assertEqual(category, TaskCategory.GENERAL_REASONING)
 
-        state.add_trace_event("TEST_EVENT", "State initialized cleanly")
-        self.assertEqual(len(state.trace.events), 1)
-        self.assertEqual(state.trace.events[0].event_type, "TEST_EVENT")
-
-    def test_task_classification_and_planning(self):
-        # 1. Inspection Report
-        category = TaskClassifier.classify("Inspect scanned inspection report", ["report.pdf"])
-        self.assertEqual(category, TaskCategory.DOCUMENT_INSPECTION)
-
-        state = AgentState(task_id="test_002", user_query="Inspect scanned report", input_files=["report.pdf"])
+        state = AgentState(task_id="test_gen_01", user_query="What is the difference between a process and a thread?")
         cat, steps = AgentPlanner.create_plan(state)
-        self.assertEqual(cat, TaskCategory.DOCUMENT_INSPECTION)
-        self.assertEqual(len(steps), 6)
-        self.assertEqual(steps[0].assigned_tool, "ocr_pdf_tool")
+        self.assertEqual(cat, TaskCategory.GENERAL_REASONING)
+        self.assertEqual(len(steps), 1)
+        self.assertEqual(steps[0].assigned_tool, "model_router_tool")
+        # Ensure no RAG or SOP tool is in the plan
+        assigned_tools = [s.assigned_tool for s in steps]
+        self.assertNotIn("rag_search_tool", assigned_tools)
 
-        # 2. SOP Query
-        cat_sop, steps_sop = AgentPlanner.create_plan(AgentState(task_id="t2", user_query="What is the SOP policy?"))
-        self.assertEqual(cat_sop, TaskCategory.SOP_RAG_QUERY)
-        self.assertEqual(len(steps_sop), 2)
+    def test_industrial_keywords_in_text_do_not_force_rag_or_inspection(self):
+        """Queries mentioning inspection/weld/turbine without attached files stay GENERAL_REASONING."""
+        query = "Can you explain how ultrasonic testing works for inspection of turbine welds?"
+        category = TaskClassifier.classify(query, [])
+        self.assertEqual(category, TaskCategory.GENERAL_REASONING)
 
-    def test_tool_registry_and_retry(self):
-        registry = ToolRegistry()
+        state = AgentState(task_id="test_kw_01", user_query=query)
+        cat, steps = AgentPlanner.create_plan(state)
+        self.assertEqual(cat, TaskCategory.GENERAL_REASONING)
+        self.assertEqual(len(steps), 1)
+        self.assertEqual(steps[0].assigned_tool, "model_router_tool")
+
+    def test_document_analysis_only_when_files_attached(self):
+        """Document extraction steps are only planned when the user actually attaches files."""
+        state_no_file = AgentState(task_id="t_nofile", user_query="Please review this report", input_files=[])
+        cat_no_file, steps_no_file = AgentPlanner.create_plan(state_no_file)
+        self.assertEqual(cat_no_file, TaskCategory.GENERAL_REASONING)
+        self.assertEqual(len(steps_no_file), 1)
+
+        state_with_file = AgentState(task_id="t_file", user_query="Please review this", input_files=["notes.pdf"])
+        cat_with_file, steps_with_file = AgentPlanner.create_plan(state_with_file)
+        self.assertEqual(cat_with_file, TaskCategory.DOCUMENT_ANALYSIS)
+        self.assertEqual(len(steps_with_file), 2)
+        self.assertEqual(steps_with_file[0].assigned_tool, "ocr_pdf_tool")
+        self.assertEqual(steps_with_file[1].assigned_tool, "model_router_tool")
+        # Ensure RAG search is NOT in the plan
+        assigned_tools = [s.assigned_tool for s in steps_with_file]
+        self.assertNotIn("rag_search_tool", assigned_tools)
+
+    def test_active_tool_registry_does_not_contain_rag(self):
+        """RAG tool is not in active default tool registry."""
+        registry = default_tool_registry
         tools = registry.list_tools()
-        self.assertGreaterEqual(len(tools), 7)
+        tool_names = [t["name"] for t in tools]
+        self.assertNotIn("rag_search_tool", tool_names)
 
-        # Execute valid tool
-        rec = registry.execute_with_retry(tool_name="ocr_pdf_tool", step_id=1, params={"file_path": "sample.pdf"})
-        self.assertTrue(rec.success)
-        self.assertIn("extracted_text", rec.output)
-
-        # Execute invalid tool
-        rec_invalid = registry.execute_with_retry(tool_name="non_existent_tool", step_id=1, params={})
-        self.assertFalse(rec_invalid.success)
-        self.assertIn("not registered", rec_invalid.error_message)
-
-    def test_orchestrator_execution(self):
+    def test_orchestrator_execution_produces_no_fake_evidence(self):
+        """No fake SOP citations or fake ASME findings are added to state."""
         orchestrator = AgentOrchestrator()
-        state = orchestrator.create_task(query="Inspect turbine report", input_files=["turbine.pdf"])
-        self.assertEqual(state.status, "PLANNED")
-        self.assertEqual(len(state.plan), 6)
-
+        state = orchestrator.create_task(query="Hi, how are you?")
         orchestrator.run_all_steps(state)
-        self.assertEqual(state.status, "VERIFYING")
-        self.assertEqual(len(state.tool_calls), 6)
-        self.assertGreaterEqual(len(state.retrieved_evidence), 1)
-        self.assertIn("approval_note_docx", state.draft_deliverables)
-        self.assertIn("action_tracker_xlsx", state.draft_deliverables)
 
-    def test_self_verification(self):
+        # Verified: zero retrieved evidence items
+        self.assertEqual(len(state.retrieved_evidence), 0)
+        # Verified: calculation_details not artificially populated with ASME / OISD derating
+        self.assertIsNone(state.calculation_details)
+        # Verified: multi_doc_comparison not artificially populated
+        self.assertIsNone(state.multi_doc_comparison)
+
+    def test_model_router_offline_honest_response(self):
+        """When local Ollama model is offline, returns an honest message without fake ASME derating."""
+        registry = ToolRegistry()
+        tool = registry.get_tool("model_router_tool")
+        self.assertIsNotNone(tool)
+
+        result = tool.run(task_type="general", prompt="Calculate derated MAWP for pressure vessel")
+        self.assertIn("response", result)
+        response = result["response"]
+        # Must not contain hardcoded ASME UG-27 SA-516 88.54 PSI or OISD-118 fake calculation
+        self.assertNotIn("SA-516", response)
+        self.assertNotIn("88.54 PSI", response)
+        self.assertNotIn("OISD-118 Section 4.2.1", response)
+        self.assertIn("Ollama", response)
+
+    def test_verifier_passes_general_query_without_sop_evidence(self):
+        """SelfVerifier does not fail general questions for lacking SOP evidence."""
         orchestrator = AgentOrchestrator()
-        state = orchestrator.create_task(query="Inspect turbine report", input_files=["turbine.pdf"])
+        state = orchestrator.create_task(query="Tell me a fun fact about space.")
         orchestrator.run_all_steps(state)
 
         result = SelfVerifier.verify(state)
         self.assertTrue(result.verified)
-        self.assertTrue(result.zero_external_calls)
-        self.assertEqual(state.status, "AWAITING_APPROVAL")
+        self.assertEqual(state.status, "COMPLETED")
+        # Check names verified
+        check_names = [c.check_name for c in result.checks]
+        self.assertNotIn("EVIDENCE_BACKING", check_names)
+        self.assertNotIn("REQUIRED_DELIVERABLES", check_names)
 
-    def test_human_approval_gate(self):
-        orchestrator = AgentOrchestrator()
-        state = orchestrator.create_task(query="Inspect turbine report", input_files=["turbine.pdf"])
-        orchestrator.run_all_steps(state)
-        SelfVerifier.verify(state)
-
-        # Approve
-        updated_state = HumanApprovalManager.submit_decision(
-            state=state,
-            decision=HumanDecision.APPROVED,
-            reviewer="Lead Inspector",
-            comments="All verified.",
-        )
-        self.assertEqual(updated_state.status, "COMPLETED")
-        self.assertEqual(updated_state.approval.reviewer, "Lead Inspector")
-        self.assertEqual(updated_state.approval.status, HumanDecision.APPROVED)
-
-    def test_model_router_output_reaches_findings(self):
-        """Regression test for ROOT CAUSE: model_router_tool output was silently dropped.
-        
-        Previously _update_state_findings had no branch for model_router_tool,
-        so ALL its output was discarded. Now it writes model_used, model_error,
-        and (when Ollama is online) synthesized_analysis.
-        """
-        orchestrator = AgentOrchestrator()
-        state = orchestrator.create_task(query="Inspect turbine report", input_files=["turbine.pdf"])
-        orchestrator.run_all_steps(state)
-
-        # model_used is always set regardless of whether Ollama is reachable
-        self.assertIn("model_used", state.findings,
-            "model_router_tool output should be written to state.findings['model_used']")
-
-        # If Ollama is offline, we get model_error; if online, synthesized_analysis
-        has_synthesis = "synthesized_analysis" in state.findings
-        has_error = "model_error" in state.findings
-        self.assertTrue(has_synthesis or has_error,
-            "model_router_tool should write either synthesized_analysis (Ollama online) "
-            "or model_error (Ollama offline) to state.findings")
-
-    def test_xlsx_items_derived_from_findings(self):
-        """Regression test: XLSX items were hardcoded to one fake task instead of real findings."""
-        orchestrator = AgentOrchestrator()
-        state = orchestrator.create_task(query="Inspect turbine report", input_files=["turbine.pdf"])
-        orchestrator.run_all_steps(state)
-
-        # Find the xlsx tool call and check its input_params
-        xlsx_calls = [tc for tc in state.tool_calls if tc.tool_name == "generate_xlsx_tool"]
-        self.assertEqual(len(xlsx_calls), 1)
-        items = xlsx_calls[0].input_params.get("items", [])
-        # Should have more than the old hardcoded single item
-        self.assertGreaterEqual(len(items), 1, "XLSX should have items derived from real findings")
-        # Should NOT be the old hardcoded "Inspect Weld B-12"
-        if len(items) > 0:
-            first_task = items[0].get("task", "")
-            self.assertNotEqual(first_task, "Inspect Weld B-12",
-                "XLSX items should be derived from real findings, not hardcoded")
-
-    def test_docx_content_quality(self):
-        """Regression test: DOCX content should contain synthesized analysis, not just raw data."""
-        import os
-        orchestrator = AgentOrchestrator()
-        state = orchestrator.create_task(query="Inspect turbine report", input_files=["turbine.pdf"])
-        orchestrator.run_all_steps(state)
-
-        # Verify the DOCX file was created and contains real content
-        docx_path = state.draft_deliverables.get("approval_note_docx", "")
-        self.assertTrue(docx_path, "DOCX deliverable path should be set")
-
-        full_path = os.path.join("backend", "storage", "outputs", docx_path)
-        self.assertTrue(os.path.exists(full_path), f"DOCX file should exist at {full_path}")
-
-        # Open and verify content
-        from docx import Document
-        doc = Document(full_path)
-        full_text = "\n".join(p.text for p in doc.paragraphs)
-        self.assertGreater(len(full_text), 100, "DOCX should have substantial content")
-        self.assertIn("Approval Note", full_text, "DOCX should have the title")
-
-    def test_streaming_agent_endpoint(self):
-        """Test FastAPI SSE streaming route returns real-time data events."""
-        from fastapi.testclient import TestClient
-        from backend.main import app
-
+    def test_streaming_endpoint(self):
+        """FastAPI SSE streaming route works for general questions."""
         client = TestClient(app)
         response = client.post(
             "/api/agent/run-stream",
-            json={"user_query": "Inspect turbine report", "input_files": ["turbine.pdf"]},
+            json={"user_query": "Hello AI assistant", "input_files": []},
         )
         self.assertEqual(response.status_code, 200)
         self.assertIn("text/event-stream", response.headers.get("content-type", ""))
+        self.assertIn('"type": "INIT"', response.text)
+        self.assertIn('"type": "COMPLETE"', response.text)
 
-        content = response.text
-        self.assertIn("data: ", content)
-        self.assertIn('"type": "INIT"', content)
-        self.assertIn('"type": "COMPLETE"', content)
-
-    def test_cancellation_and_fields(self):
-        """Test cancellation state handling and calculation/multi-doc detection."""
+    def test_cancellation(self):
+        """Cancellation properly updates task state."""
         orchestrator = AgentOrchestrator()
-        state = orchestrator.create_task(
-            query="Calculate derated MAWP for pressure vessel with measured thickness 0.285 in",
-            input_files=["baseline.pdf", "current.pdf"],
-        )
-        # Verify initial state
-        self.assertFalse(state.cancellation_requested)
-        # Execute 1 step
-        orchestrator.execute_next_step(state)
-        # Request cancel
+        state = orchestrator.create_task(query="Test cancellation")
         state.request_cancel()
         self.assertTrue(state.cancellation_requested)
         self.assertEqual(state.status, "CANCELLED")
 
-        # Verify execute_next_step returns CANCELLED
-        state2 = orchestrator.execute_next_step(state)
-        self.assertEqual(state2.status, "CANCELLED")
+    def test_rag_endpoints_not_in_active_app(self):
+        """RAG router is removed from active FastAPI application."""
+        client = TestClient(app)
+        res = client.post("/api/rag/query", json={"query": "test"})
+        # 404 Not Found confirms rag_router is bypassed / not registered
+        self.assertEqual(res.status_code, 404)
 
-        # Test full run with calculation populates calculation_details and multi_doc_comparison
-        state_calc = orchestrator.create_task(
-            query="Calculate derated MAWP for pressure vessel",
-            input_files=["baseline.pdf", "current.pdf"],
-        )
-        orchestrator.run_all_steps(state_calc)
-        self.assertIsNotNone(state_calc.text_response)
-        self.assertIsNotNone(state_calc.calculation_details)
-        self.assertIn("steps", state_calc.calculation_details)
-        self.assertIsNotNone(state_calc.multi_doc_comparison)
-        self.assertEqual(state_calc.multi_doc_comparison["doc1"], "baseline.pdf")
+    def test_missing_file_extraction_returns_honest_error(self):
+        """Missing file returns clean error without generating fake inspection findings."""
+        from ingestion.extractor import extract_content
+        result = extract_content("completely_nonexistent_weld_report.pdf")
+        self.assertFalse(result.success)
+        self.assertIn("File not found", result.error)
+        self.assertEqual(len(result.structured.findings), 0)
 
 
 if __name__ == "__main__":

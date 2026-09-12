@@ -1,5 +1,5 @@
 """
-Task Classification and Dynamic Planner Engine for KAVACH AI Workbench.
+Task Classification and Dynamic Planner Engine for General-Purpose AI Agent.
 """
 
 from typing import List, Tuple
@@ -7,32 +7,29 @@ from backend.agent.state import AgentState, PlanStep, StepStatus, TaskCategory
 
 
 class TaskClassifier:
-    """Classifies user queries and attached files into sovereign workflow categories."""
+    """Classifies user queries and attached files into clean assistant workflow categories."""
 
     @staticmethod
     def classify(query: str, input_files: List[str]) -> TaskCategory:
         query_lower = query.lower()
-        file_exts = [f.split(".")[-1].lower() for f in input_files if "." in f]
 
-        if any(ext in ["pdf", "png", "jpg", "jpeg", "tiff"] for ext in file_exts) or any(
-            kw in query_lower for kw in ["inspection", "scanned", "report", "audit", "defect", "weld"]
-        ):
-            return TaskCategory.DOCUMENT_INSPECTION
+        # Document analysis only when the user explicitly provides files
+        if input_files and len(input_files) > 0:
+            return TaskCategory.DOCUMENT_ANALYSIS
 
-        if any(kw in query_lower for kw in ["sop", "manual", "policy", "guideline", "standard", "regulation"]):
-            return TaskCategory.SOP_RAG_QUERY
-
-        if any(kw in query_lower for kw in ["code", "python", "script", "sandbox", "execute", "run"]):
+        # Code execution in sandbox if explicitly asked
+        if any(kw in query_lower for kw in ["run python", "run script", "execute python", "execute script", "execute code", "run in sandbox"]):
             return TaskCategory.SANDBOX_CODE_EXECUTION
 
-        if any(kw in query_lower for kw in ["docx", "xlsx", "pptx", "generate deliverable", "tracker", "approval note"]):
+        # Explicit document/spreadsheet generation
+        if any(kw in query_lower for kw in ["generate docx", "generate excel", "export xlsx", "create spreadsheet", "generate spreadsheet", "create docx file"]):
             return TaskCategory.DELIVERABLE_GENERATION
 
         return TaskCategory.GENERAL_REASONING
 
 
 class AgentPlanner:
-    """Generates dynamic multi-step execution plans tailored to the task category."""
+    """Generates execution plans tailored to the user's specific request."""
 
     @staticmethod
     def create_plan(state: AgentState) -> Tuple[TaskCategory, List[PlanStep]]:
@@ -40,58 +37,18 @@ class AgentPlanner:
 
         steps: List[PlanStep] = []
 
-        if category == TaskCategory.DOCUMENT_INSPECTION:
+        if category in (TaskCategory.DOCUMENT_ANALYSIS, TaskCategory.DOCUMENT_INSPECTION):
             steps = [
                 PlanStep(
                     step_id=1,
-                    title="Document OCR & Text Extraction",
-                    description="Extract text, tables, and handwriting from uploaded inspection document.",
+                    title="Document Content Extraction",
+                    description="Extract text and structure from user-provided file.",
                     assigned_tool="ocr_pdf_tool",
                 ),
                 PlanStep(
                     step_id=2,
-                    title="Visual Inspection Analysis",
-                    description="Analyze attached photographs and defect diagrams using local vision model.",
-                    assigned_tool="vision_analysis_tool",
-                ),
-                PlanStep(
-                    step_id=3,
-                    title="SOP & Guidance Retrieval",
-                    description="Retrieve relevant internal safety SOPs and maintenance manuals from local vector RAG.",
-                    assigned_tool="rag_search_tool",
-                ),
-                PlanStep(
-                    step_id=4,
-                    title="Synthesize Findings & Risk Assessment",
-                    description="Combine inspection OCR, visual findings, and SOP guidance using specialized local LLM.",
-                    assigned_tool="model_router_tool",
-                ),
-                PlanStep(
-                    step_id=5,
-                    title="Generate Approval Note (DOCX)",
-                    description="Format verified findings and recommendations into official Word approval note.",
-                    assigned_tool="generate_docx_tool",
-                ),
-                PlanStep(
-                    step_id=6,
-                    title="Generate Action Tracker (XLSX)",
-                    description="Create spreadsheet action tracker with itemized maintenance tasks and priorities.",
-                    assigned_tool="generate_xlsx_tool",
-                ),
-            ]
-
-        elif category == TaskCategory.SOP_RAG_QUERY:
-            steps = [
-                PlanStep(
-                    step_id=1,
-                    title="Local SOP Vector RAG Search",
-                    description="Query local knowledge base for relevant SOPs, clauses, and manuals.",
-                    assigned_tool="rag_search_tool",
-                ),
-                PlanStep(
-                    step_id=2,
-                    title="Synthesize Citation-Backed Answer",
-                    description="Generate comprehensive answer with explicit page and section citations.",
+                    title="Document Analysis & Reasoning",
+                    description="Analyze extracted document content using language model.",
                     assigned_tool="model_router_tool",
                 ),
             ]
@@ -100,46 +57,42 @@ class AgentPlanner:
             steps = [
                 PlanStep(
                     step_id=1,
-                    title="Sandboxed Script Execution",
-                    description="Execute code in network-isolated Docker sandbox.",
+                    title="Sandboxed Code Execution",
+                    description="Execute script safely in isolated environment.",
                     assigned_tool="sandbox_code_tool",
                 ),
                 PlanStep(
                     step_id=2,
                     title="Analyze Execution Results",
-                    description="Interpret stdout, stderr, and output artifacts safely.",
+                    description="Interpret script output and format response.",
                     assigned_tool="model_router_tool",
                 ),
             ]
 
         elif category == TaskCategory.DELIVERABLE_GENERATION:
+            query_lower = state.user_query.lower()
+            tool = "generate_xlsx_tool" if any(w in query_lower for w in ["xlsx", "excel", "spreadsheet"]) else "generate_docx_tool"
             steps = [
                 PlanStep(
                     step_id=1,
-                    title="Retrieve Relevant Context",
-                    description="Retrieve project context and guidelines from local RAG.",
-                    assigned_tool="rag_search_tool",
+                    title="Synthesize Content",
+                    description="Synthesize document content using language model.",
+                    assigned_tool="model_router_tool",
                 ),
                 PlanStep(
                     step_id=2,
-                    title="Generate Approval Note DOCX",
-                    description="Produce formatted Word approval note.",
-                    assigned_tool="generate_docx_tool",
-                ),
-                PlanStep(
-                    step_id=3,
-                    title="Generate Action Tracker XLSX",
-                    description="Produce formatted Excel action tracker.",
-                    assigned_tool="generate_xlsx_tool",
+                    title="Generate Document File",
+                    description=f"Export synthesized content using {tool}.",
+                    assigned_tool=tool,
                 ),
             ]
 
-        else:  # GENERAL_REASONING
+        else:  # GENERAL_REASONING and all general queries
             steps = [
                 PlanStep(
                     step_id=1,
-                    title="Local Model Reasoning",
-                    description="Process user query using sovereign local LLM without cloud access.",
+                    title="Reasoning & Response Generation",
+                    description="Process user query using language model.",
                     assigned_tool="model_router_tool",
                 ),
             ]

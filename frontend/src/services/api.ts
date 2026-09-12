@@ -23,84 +23,81 @@ export const activeModelsList: ModelInfo[] = [
   {
     id: "qwen-coder",
     name: "Qwen2.5-Coder-7B-Instruct (Q4_K_M)",
-    specialization: "Sandbox Code Execution & Verification Scripts",
+    specialization: "Code Generation & Execution",
     weightsFormat: "GGUF Q4_K_M (Ollama, local GPU)",
     vramUsageGb: 5.5,
     contextLength: "32k Tokens",
     status: "ACTIVE",
     tokenThroughput: 22.0,
-    description: "Generates and reasons about Python verification/audit scripts run in the sandbox.",
+    description: "Generates and reasons about Python scripts executed safely in the sandbox.",
   },
   {
     id: "qwen-vl",
     name: "Qwen2.5-VL-7B (Q4_K_M)",
-    specialization: "P&ID Drawings, Scanned Reports, Defect Recognition",
+    specialization: "Visual Analysis & Image Understanding",
     weightsFormat: "GGUF Q4_K_M (Ollama, local GPU)",
     vramUsageGb: 6.0,
     contextLength: "32k Tokens",
     status: "ACTIVE",
     tokenThroughput: 18.0,
-    description: "Multimodal OCR & structural defect localization on industrial scans/diagrams.",
+    description: "Multimodal image understanding, diagram parsing, and visual document reasoning.",
   },
   {
     id: "qwen-instruct",
     name: "Qwen2.5-7B-Instruct (Q4_K_M)",
-    specialization: "General Reasoning, SOP Compliance, Approval Note Synthesis",
+    specialization: "General Reasoning & Conversation",
     weightsFormat: "GGUF Q4_K_M (Ollama, local GPU)",
     vramUsageGb: 5.5,
     contextLength: "32k Tokens",
     status: "ROUTED",
     tokenThroughput: 24.0,
-    description: "Synthesizes approval notes and general reasoning grounded in RAG evidence.",
+    description: "Multi-turn dialog, analytical reasoning, and synthesized text responses.",
   },
   {
     id: "tesseract-ocr",
     name: "Tesseract OCR v5 (CPU Engine)",
-    specialization: "Scanned Document OCR & Tabular Inspection Extraction",
+    specialization: "Document Text & Table Extraction",
     weightsFormat: "Native C++ / Pytesseract (Local CPU)",
     vramUsageGb: 0,
     contextLength: "Multi-Page Stream",
     status: "ACTIVE",
     tokenThroughput: 45.0,
-    description: "High-speed local OCR engine for scanned plant inspection reports, ultrasonic NDT tables, and raster image extraction with zero GPU VRAM overhead.",
+    description: "High-speed local OCR engine for attached documents and images with zero cloud egress.",
   },
 ];
 
 // Placeholder shown only until the first real fetchNetworkStats() resolves.
 export const initialNetworkLogs: NetworkPacketLog[] = [];
 
-export const sampleIndustrialScenarios = [
+export const sampleScenarios = [
   {
     id: "sc-1",
-    title: "1. Inspection Audit & Approval Note",
-    category: "DOCUMENT_INSPECTION",
-    query: "Review the attached pump maintenance inspection log. Extract key observations and wall thinning measurements, verify statutory compliance with OISD-118, and generate an official Approval Note DOCX for the unit superintendent.",
+    title: "1. Explain a Technical Concept",
+    category: "GENERAL_REASONING" as const,
+    query: "Explain how transformer self-attention mechanisms work in simple, intuitive terms with an example.",
   },
   {
     id: "sc-2",
-    title: "2. ASME MAWP Derating Calculation",
-    category: "DOCUMENT_INSPECTION",
-    query: "Calculate the derated Maximum Allowable Working Pressure (MAWP) per ASME Section VIII Div 1 UG-27 for the inspected vessel. The nominal thickness is 0.500 in, measured minimum thickness is 0.285 in, allowable stress S=17,500 PSI, E=0.85, R=48.0 in. Show all calculation steps and specify mandatory reduction percentage.",
+    title: "2. Write & Test Python Code",
+    category: "SANDBOX_CODE_EXECUTION" as const,
+    query: "Write and execute a Python script in the sandbox to calculate primes up to 1000 and report the elapsed time.",
   },
   {
     id: "sc-3",
-    title: "3. Multi-Document Comparison",
-    category: "DOCUMENT_INSPECTION",
-    query: "Compare the findings across the two uploaded inspection documents (Baseline vs Current). Identify degradation trends in wall thickness, corrosion rate acceleration, new weld defects, and specify whether immediate operational derating is mandated.",
+    title: "3. Analyze Attached Document",
+    category: "DOCUMENT_ANALYSIS" as const,
+    query: "Please read the attached file, extract the primary directives, and provide an executive summary with key recommendations.",
   },
   {
     id: "sc-4",
-    title: "4. Vibration Telemetry Sandbox",
-    category: "SANDBOX_CODE_EXECUTION",
-    query: "Analyze the vibration telemetry stream. Write and execute a Python verification script in the network-isolated Docker sandbox to detect timestamp intervals where vibration exceeds safe threshold 0.8g.",
-  },
-  {
-    id: "sc-5",
-    title: "5. P&ID Visual Defect Localization",
-    category: "DOCUMENT_INSPECTION",
-    query: "Examine the attached P&ID diagram and ultrasonic scan. Localize weld joint indications and verify relief valve positioning against plant safety SOPs.",
+    title: "4. Generate Formatted Document",
+    category: "DELIVERABLE_GENERATION" as const,
+    query: "Create a project status summary covering deliverables, milestones, and upcoming tasks, and generate docx document.",
   },
 ];
+
+export const sampleIndustrialScenarios = sampleScenarios;
+
 
 // ── Live API calls ─────────────────────────────────────────────────────────
 

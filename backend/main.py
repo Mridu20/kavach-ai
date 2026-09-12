@@ -1,20 +1,17 @@
 """
 KAVACH AI Backend Entrypoint (FastAPI).
-Sovereign Industrial AI Workbench.
-
-CHANGE from your original: added system_router (real network monitoring).
+On-premise sovereign general-purpose AI agent.
 """
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from backend.api.agent_router import router as agent_router
-from backend.api.rag_router import router as rag_router
 from backend.api.system_router import router as system_router
 
 app = FastAPI(
-    title="KAVACH AI - Sovereign Industrial AI Workbench API",
-    description="On-premise, air-gapped agentic AI backend with 0 external cloud calls.",
-    version="1.0.0",
+    title="KAVACH AI - Sovereign AI Agent API",
+    description="General-purpose on-premise agentic AI assistant with zero external cloud egress.",
+    version="2.0.0",
 )
 
 # Enable CORS for React UI
@@ -27,7 +24,6 @@ app.add_middleware(
 )
 
 app.include_router(agent_router)
-app.include_router(rag_router)
 app.include_router(system_router)
 
 
@@ -35,7 +31,7 @@ app.include_router(system_router)
 def root_status():
     return {
         "status": "ONLINE",
-        "system": "KAVACH AI Sovereign Industrial Workbench",
+        "system": "KAVACH AI Agent",
         "sovereignty_proof": "0 cloud calls / Air-gapped ready",
     }
 

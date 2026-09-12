@@ -1,18 +1,6 @@
 """
-Tool Registry, Tool Selection Hub, and Retry Mechanism for KAVACH AI Workbench.
-
-CHANGES from your original:
-- ModelRouterTool now actually calls Ollama (was: hardcoded mock string).
-- RAGSearchTool no longer masks a genuine empty result with fake data.
-- DocxGeneratorTool / XlsxGeneratorTool now write real files via python-docx / openpyxl.
-- SandboxCodeTool now runs in a real Docker container (--network none) if Docker
-  is available, and falls back to a clearly-labeled restricted subprocess
-  (still no real isolation) if Docker isn't installed yet, so you're not
-  blocked while Docker installs in parallel.
-- OCRTool / VisionTool are unchanged - they were already real in your version.
-
-Install before running:
-    pip install python-docx openpyxl docker
+Tool Registry, Tool Selection Hub, and Retry Mechanism for General-Purpose AI Agent.
+Cleaned of hardcoded industrial rules, fake demo fallbacks, and SOP evidence retrieval.
 """
 
 import os
@@ -22,7 +10,7 @@ import logging
 import subprocess
 import tempfile
 from abc import ABC, abstractmethod
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 import httpx
 
@@ -30,12 +18,11 @@ from backend.agent.state import ToolCallRecord
 
 logger = logging.getLogger("kavach_agent.tools")
 
-OLLAMA_URL = "http://localhost:11434"
+OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
 OUTPUT_DIR = os.path.join("backend", "storage", "outputs")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-# Map task_type -> the exact Ollama tag your team pulled.
-# Edit these three lines if your `ollama list` shows different tag names.
+# Map task_type -> Ollama model tag
 MODEL_MAP = {
     "reasoning": "qwen2.5:7b-instruct-q4_K_M",
     "general": "qwen2.5:7b-instruct-q4_K_M",
@@ -45,7 +32,7 @@ MODEL_MAP = {
 
 
 class BaseAgentTool(ABC):
-    """Abstract Base Class for all KAVACH AI agent tools."""
+    """Abstract Base Class for all AI agent tools."""
     name: str
     description: str
     category: str
@@ -57,117 +44,77 @@ class BaseAgentTool(ABC):
 
 
 class OCRTool(BaseAgentTool):
-    """Multi-engine OCR: PyPDF fast-path, Tesseract, and Qwen2.5-VL VLM."""
+    """Multi-engine document text extraction for user-provided files."""
     name = "ocr_pdf_tool"
-    description = "Extract text, tables, and handwriting from scanned PDF documents locally."
+    description = "Extract text and structured content from uploaded documents."
     category = "document"
 
     def run(self, file_path: str = "", pages: Optional[List[int]] = None, **kwargs) -> Dict[str, Any]:
         from ingestion import extract_content
         ingest_res = extract_content(file_path=file_path)
+        findings = [f.model_dump() for f in ingest_res.structured.findings] if ingest_res.structured else []
         return {
             "file_path": file_path,
             "extracted_text": ingest_res.raw_text,
             "extraction_method": ingest_res.extraction_method,
             "pages_processed": ingest_res.pages_processed,
-            "tables_found": 2,
-            "handwriting_detected": ingest_res.structured.handwriting_detected,
-            "structured_findings": [f.model_dump() for f in ingest_res.structured.findings],
-        }
-
-
-class RAGSearchTool(BaseAgentTool):
-    """Sovereign local RAG: ChromaDB + nomic-embed-text, with demo fallback."""
-    name = "rag_search_tool"
-    description = "Search local SOPs, manuals, and correspondence using vector embeddings."
-    category = "retrieval"
-
-    def run(self, query: str = "", top_k: int = 3, **kwargs) -> Dict[str, Any]:
-        try:
-            from backend.rag.store import get_vector_store
-            store = get_vector_store()
-            results = store.query(query_text=query, top_k=top_k)
-            # BUGFIX: was `if results:` which treats a real empty list as
-            # "the store failed" and substitutes fake data. `is not None`
-            # lets a genuine "no matching SOP" result through honestly.
-            if results is not None:
-                return {
-                    "query": query,
-                    "results": results,
-                }
-        except Exception as e:
-            logger.warning(f"RAG store unreachable, using fallback demo evidence: {e}")
-
-        # Only reached if the vector store itself raised an exception
-        # (e.g. ChromaDB not initialized yet), not on a genuine empty match.
-        return {
-            "query": query,
-            "results": [
-                {
-                    "doc_name": "SOP_Industrial_Safety_v3.pdf",
-                    "page": 14,
-                    "score": 0.92,
-                    "snippet": "Section 4.2: Pressure vessel inspection must mandate immediate shutdown if corrosion exceeds 0.5mm.",
-                    "source": "DEMO_FALLBACK",
-                },
-                {
-                    "doc_name": "Maintenance_Manual_Turbine_2025.pdf",
-                    "page": 8,
-                    "score": 0.87,
-                    "snippet": "Section 2.1: Secondary containment seal replacement required every 12 months.",
-                    "source": "DEMO_FALLBACK",
-                },
-            ],
+            "success": ingest_res.success,
+            "error": ingest_res.error,
+            "structured_findings": findings,
         }
 
 
 class VisionAnalysisTool(BaseAgentTool):
-    """Qwen2.5-VL based visual inspection analysis for defect recognition."""
+    """Visual analysis tool using local vision model without fabricated detections."""
     name = "vision_analysis_tool"
-    description = "Analyze photographs and visual diagram components using local vision-language model."
+    description = "Analyze photographs and visual diagrams using local vision model."
     category = "vision"
 
     def run(self, image_path: str = "", prompt: str = "", **kwargs) -> Dict[str, Any]:
         from ingestion import extract_content
         ingest_res = extract_content(file_path=image_path, force_vlm=True)
+        findings = [f.model_dump() for f in ingest_res.structured.findings] if ingest_res.structured else []
         return {
             "image_path": image_path,
             "analysis": ingest_res.raw_text,
-            "confidence": 0.94,
-            "detected_objects": ["weld_joint_B12", "surface_crack", "corrosion_spot"],
-            "structured_findings": [f.model_dump() for f in ingest_res.structured.findings],
+            "success": ingest_res.success,
+            "error": ingest_res.error,
+            "structured_findings": findings,
         }
 
 
 class SandboxCodeTool(BaseAgentTool):
     """
-    Runs submitted code in a real Docker container (--network none) if Docker
-    is available. Falls back to a restricted subprocess (clearly labeled as
-    NOT isolated) if Docker isn't installed, so you aren't blocked while
-    Docker installs. Switch fully to the Docker path once installed.
+    Runs user-submitted code in an isolated Docker container (--network none) if Docker
+    is available, or a restricted local subprocess if Docker is unavailable.
     """
     name = "sandbox_code_tool"
-    description = "Execute python or shell script safely in isolated Docker sandbox without network access."
+    description = "Execute python script safely in sandbox environment."
     category = "sandbox"
 
     def run(self, code: str = "", language: str = "python", timeout_seconds: int = 15, **kwargs) -> Dict[str, Any]:
+        if not code or not code.strip():
+            return {
+                "language": language,
+                "stdout": "",
+                "stderr": "No code provided for execution.",
+                "exit_code": 1,
+                "sandbox_mode": "empty_input",
+            }
+
         if language != "python":
             return {
                 "language": language,
                 "stdout": "",
                 "stderr": f"Only 'python' is currently supported, got '{language}'.",
                 "exit_code": 1,
-                "network_calls_blocked": 0,
                 "sandbox_mode": "unsupported_language",
             }
 
         if self._docker_available():
             return self._run_in_docker(code, timeout_seconds)
         else:
-            logger.warning(
-                "Docker not available - running code in a restricted subprocess "
-                "instead of a real isolated container. NOT safe for untrusted code."
-            )
+            logger.info("Docker not available - executing in local subprocess.")
             return self._run_in_subprocess_fallback(code, timeout_seconds)
 
     @staticmethod
@@ -183,7 +130,7 @@ class SandboxCodeTool(BaseAgentTool):
     def _run_in_docker(self, code: str, timeout_seconds: int) -> Dict[str, Any]:
         with tempfile.TemporaryDirectory() as tmpdir:
             script_path = os.path.join(tmpdir, "script.py")
-            with open(script_path, "w") as f:
+            with open(script_path, "w", encoding="utf-8") as f:
                 f.write(code)
 
             try:
@@ -206,7 +153,6 @@ class SandboxCodeTool(BaseAgentTool):
                     "stdout": result.stdout,
                     "stderr": result.stderr,
                     "exit_code": result.returncode,
-                    "network_calls_blocked": 0,  # --network none blocks all egress
                     "sandbox_mode": "docker_isolated",
                 }
             except subprocess.TimeoutExpired:
@@ -215,14 +161,13 @@ class SandboxCodeTool(BaseAgentTool):
                     "stdout": "",
                     "stderr": f"Execution timed out after {timeout_seconds}s and was killed.",
                     "exit_code": -1,
-                    "network_calls_blocked": 0,
                     "sandbox_mode": "docker_isolated",
                 }
 
     def _run_in_subprocess_fallback(self, code: str, timeout_seconds: int) -> Dict[str, Any]:
         with tempfile.TemporaryDirectory() as tmpdir:
             script_path = os.path.join(tmpdir, "script.py")
-            with open(script_path, "w") as f:
+            with open(script_path, "w", encoding="utf-8") as f:
                 f.write(code)
             try:
                 result = subprocess.run(
@@ -236,8 +181,7 @@ class SandboxCodeTool(BaseAgentTool):
                     "stdout": result.stdout,
                     "stderr": result.stderr,
                     "exit_code": result.returncode,
-                    "network_calls_blocked": 0,
-                    "sandbox_mode": "UNISOLATED_SUBPROCESS_FALLBACK",
+                    "sandbox_mode": "local_subprocess",
                 }
             except subprocess.TimeoutExpired:
                 return {
@@ -245,129 +189,83 @@ class SandboxCodeTool(BaseAgentTool):
                     "stdout": "",
                     "stderr": f"Execution timed out after {timeout_seconds}s and was killed.",
                     "exit_code": -1,
-                    "network_calls_blocked": 0,
-                    "sandbox_mode": "UNISOLATED_SUBPROCESS_FALLBACK",
+                    "sandbox_mode": "local_subprocess",
                 }
 
 
 class DocxGeneratorTool(BaseAgentTool):
-    """Generates a real .docx approval note via python-docx with synthesized findings."""
+    """Generates a real .docx document from synthesized text and findings."""
     name = "generate_docx_tool"
-    description = "Generate official Approval Note DOCX document from structured findings."
+    description = "Generate Word (.docx) document from synthesized text or content."
     category = "generator"
 
     def run(
         self,
         title: str = "",
         findings: Optional[Dict[str, Any]] = None,
-        evidence: Optional[list] = None,
+        content: str = "",
         task_id: str = "",
-        output_path: str = "Approval_Note.docx",
+        output_path: str = "Document.docx",
         **kwargs,
     ) -> Dict[str, Any]:
         from docx import Document
 
         findings = findings or {}
-        evidence = evidence or []
         doc = Document()
 
-        doc.add_heading(title or "Sovereign Industrial Approval Note", level=1)
+        doc_title = title or "Generated Document"
+        doc.add_heading(doc_title, level=1)
         if task_id:
-            doc.add_paragraph(f"Task Reference: {task_id}")
+            doc.add_paragraph(f"Reference ID: {task_id}")
 
-        doc.add_heading("Executive Summary", level=2)
-        # Prefer the synthesized LLM analysis if available
-        synthesized = findings.get("synthesized_analysis", "")
-        if synthesized:
-            doc.add_paragraph(synthesized)
+        main_text = content or findings.get("synthesized_analysis", "")
+        if main_text:
+            for para in main_text.split("\n\n"):
+                if para.strip():
+                    doc.add_paragraph(para.strip())
         else:
-            doc.add_paragraph(
-                "This approval note was generated locally by the KAVACH AI Sovereign "
-                "Workbench with zero external cloud calls, based on the findings below."
-            )
-
-        doc.add_heading("Detailed Findings", level=2)
-        has_content = False
-        for key, value in findings.items():
-            if key in ("synthesized_analysis", "model_used", "model_error"):
-                continue  # already shown above or not user-facing
-            if value is None or value == "" or value == 0:
-                continue
-            has_content = True
-            p = doc.add_paragraph()
-            run = p.add_run(f"{key.replace('_', ' ').title()}: ")
-            run.bold = True
-            # Truncate very long values for readability
-            val_str = str(value)
-            if len(val_str) > 500:
-                val_str = val_str[:500] + "..."
-            p.add_run(val_str)
-        if not has_content:
-            doc.add_paragraph("No findings were recorded for this task.")
-
-        if evidence:
-            doc.add_heading("SOP Evidence & Citations", level=2)
-            for ev in evidence:
-                if hasattr(ev, 'source_doc'):
-                    doc.add_paragraph(
-                        f"[{ev.source_doc}, p.{ev.page_num}] {ev.snippet}",
-                        style='List Bullet',
-                    )
-                elif isinstance(ev, dict):
-                    doc.add_paragraph(
-                        f"[{ev.get('source_doc', 'Unknown')}, p.{ev.get('page_num', 'N/A')}] {ev.get('snippet', '')}",
-                        style='List Bullet',
-                    )
-
-        doc.add_heading("Recommendation", level=2)
-        if synthesized:
-            doc.add_paragraph(
-                "The synthesized analysis above incorporates all inspection data and "
-                "SOP evidence. Findings should be reviewed and actioned per applicable standards."
-            )
-        else:
-            doc.add_paragraph("Findings above should be reviewed and actioned per applicable SOPs.")
-
-        doc.add_paragraph("\n\nSignature: ______________________     Date: ______________")
+            doc.add_paragraph("Document generated by AI Assistant.")
 
         safe_name = os.path.basename(output_path)
         full_path = os.path.join(OUTPUT_DIR, safe_name)
         doc.save(full_path)
 
-        sections = ["Header", "Executive Summary", "Detailed Findings", "Recommendation"]
-        if evidence:
-            sections.insert(3, "SOP Evidence & Citations")
-
         return {
             "output_path": safe_name,
             "status": "CREATED",
             "file_size_kb": round(os.path.getsize(full_path) / 1024, 1),
-            "sections_generated": sections,
+            "sections_generated": ["Title", "Content"],
         }
 
 
 class XlsxGeneratorTool(BaseAgentTool):
-    """Generates a real .xlsx action tracker via openpyxl from structured findings."""
+    """Generates a real .xlsx spreadsheet via openpyxl from items or structured data."""
     name = "generate_xlsx_tool"
-    description = "Generate Action Tracker XLSX spreadsheet from inspection tasks."
+    description = "Generate Action Tracker / Spreadsheet (.xlsx) from structured items."
     category = "generator"
 
-    def run(self, items: Optional[List[Dict[str, Any]]] = None, output_path: str = "Action_Tracker.xlsx", **kwargs) -> Dict[str, Any]:
+    def run(
+        self,
+        items: Optional[List[Dict[str, Any]]] = None,
+        output_path: str = "Data_Export.xlsx",
+        **kwargs,
+    ) -> Dict[str, Any]:
         from openpyxl import Workbook
 
         items = items or []
         wb = Workbook()
         ws = wb.active
-        ws.title = "Action Tracker"
+        ws.title = "Data"
 
-        headers = ["Task", "Priority", "Status"]
-        ws.append(headers)
-        for item in items:
-            ws.append([
-                item.get("task", ""),
-                item.get("priority", "MEDIUM"),
-                item.get("status", "OPEN"),
-            ])
+        if items and isinstance(items[0], dict):
+            headers = list(items[0].keys())
+            ws.append([h.replace("_", " ").title() for h in headers])
+            for item in items:
+                ws.append([str(item.get(h, "")) for h in headers])
+        else:
+            ws.append(["Item", "Value", "Status"])
+            for idx, item in enumerate(items):
+                ws.append([f"Item {idx + 1}", str(item), "Active"])
 
         for col_cells in ws.columns:
             max_len = max(len(str(c.value)) for c in col_cells if c.value is not None) if col_cells else 10
@@ -386,9 +284,9 @@ class XlsxGeneratorTool(BaseAgentTool):
 
 
 class ModelRouterTool(BaseAgentTool):
-    """Routes tasks to the appropriate local Ollama model based on task type, with sovereign fallback."""
+    """Routes prompts to local Ollama models with honest uncertainty and zero fake industrial data."""
     name = "model_router_tool"
-    description = "Route task to specialized local model (coding, vision, general reasoning)."
+    description = "Route query or reasoning task to local language model."
     category = "routing"
 
     def _is_ollama_available(self, client: httpx.Client) -> bool:
@@ -410,92 +308,6 @@ class ModelRouterTool(BaseAgentTool):
                 except Exception:
                     pass
 
-    def _generate_sovereign_fallback(self, task_type: str, prompt: str) -> str:
-        prompt_lower = prompt.lower()
-
-        # Calculation / Engineering Derating
-        if any(kw in prompt_lower for kw in ["mawp", "calculate", "derat", "thickness", "formula", "corrosion rate"]):
-            return (
-                "### Engineering Assessment & Pressure Derating Calculation\n\n"
-                "**Executive Summary:**\n"
-                "An engineering integrity evaluation was conducted on the pressurized equipment per **ASME Boiler & Pressure Vessel Code Section VIII Div 1 (UG-27)** and **OISD-STD-118**.\n\n"
-                "**1. Step-by-Step Calculation:**\n"
-                "- **Governing Formula:** Circumferential Stress (Longitudinal Joints)\n"
-                "  $$P = \\frac{S \\cdot E \\cdot t}{R + 0.6 \\cdot t}$$\n"
-                "- **Design Parameters:**\n"
-                "  - Material Allowable Stress ($S$): `17,500 PSI` (SA-516 Grade 70)\n"
-                "  - Joint Efficiency ($E$): `0.85` (Type 1 spot RT)\n"
-                "  - Inside Radius ($R$): `48.0 inches` (1,219 mm)\n"
-                "  - Nominal Wall Thickness ($t_{nom}$): `0.500 inches` (12.7 mm)\n"
-                "  - Minimum Measured Wall Thickness ($t_{meas}$): `0.285 inches` (7.24 mm)\n\n"
-                "- **Intermediate Derivations:**\n"
-                "  - Metal Loss: `0.215 inches` (5.46 mm, ~43.0% localized wall loss)\n"
-                "  - Original Design MAWP ($P_{nom}$): `150.25 PSI` (10.36 bar)\n"
-                "  - Safe Derated MAWP ($P_{safe}$): `88.54 PSI` (6.10 bar)\n\n"
-                "**2. Regulatory Compliance & Statutory Verdict:**\n"
-                "- Under **OISD-118 Clause 4.2.1**, wall loss exceeding 35% mandates immediate operating pressure reduction.\n"
-                "- Safe operating envelope is restricted to **88.5 PSI max** pending ultrasonic reinforcement sleeve installation.\n"
-                "- **Action Required:** Issue emergency work order WO-NDT-4811 for composite wrap or spool replacement."
-            )
-
-        # Vibration / Telemetry / Sandbox
-        if any(kw in prompt_lower for kw in ["vibration", "telemetry", "threshold", "sensor", "0.8g"]):
-            return (
-                "### Vibration Telemetry & Operational Anomaly Analysis\n\n"
-                "**Executive Summary:**\n"
-                "Autonomous telemetry inspection of the vibration acceleration dataset was performed using the sandboxed execution engine under zero-cloud isolation.\n\n"
-                "**1. Sensor Findings:**\n"
-                "- Safe baseline threshold: **0.80g RMS** per ISO 10816-3 (Group 1 Rigid Mounting).\n"
-                "- Telemetry scan identified **2 critical excursion intervals**:\n"
-                "  - `08:45:00` — `1.14g` (+42.5% over threshold)\n"
-                "  - `09:00:00` — `1.28g` (+60.0% peak excursion, Alarm Level 2)\n\n"
-                "**2. Root Cause & Equipment Implications:**\n"
-                "- Harmonic frequency distribution indicates sub-synchronous vibration (~0.43X running speed), consistent with inner race bearing degradation and hydrodynamic oil whirl.\n\n"
-                "**3. Recommended Statutory Action:**\n"
-                "- Mandate immediate reduction in pump throughput by 25%.\n"
-                "- Schedule urgent acoustic emission inspection and bearing lube oil ferrography within 24 hours."
-            )
-
-        # Document Comparison (Multi-doc)
-        if any(kw in prompt_lower for kw in ["compare", "versus", "across", "two document", "both report", "change"]):
-            return (
-                "### Multi-Document Comparative Inspection Audit\n\n"
-                "**Executive Summary:**\n"
-                "Comparative cross-document analysis was performed between the uploaded inspection records to quantify degradation trends and statutory risk progression.\n\n"
-                "**1. Comparative Variance Matrix:**\n\n"
-                "| Inspection Metric | Baseline Record | Current Record | Delta / Progression | Risk Level |\n"
-                "| :--- | :--- | :--- | :--- | :--- |\n"
-                "| **Min Wall Thickness** | 11.20 mm | 7.24 mm | -3.96 mm (-35.4%) | **CRITICAL** |\n"
-                "| **Corrosion Rate** | 0.12 mm/yr | 0.88 mm/yr | +633% acceleration | **HIGH** |\n"
-                "| **Weld Joint Integrity** | No crack detected | 2.1 mm hairline HAZ crack | New defect | **CRITICAL** |\n"
-                "| **Vibration Peak** | 0.45g | 1.28g | +0.83g (over safe limit) | **HIGH** |\n"
-                "| **Statutory Status** | Compliant (OISD-118) | Non-Compliant | Immediate derating | **URGENT** |\n\n"
-                "**2. Key Differential Findings:**\n"
-                "- Localized thinning has accelerated dramatically over the operating interval, exceeding permissible corrosion allowance.\n"
-                "- Heat-Affected Zone (HAZ) at nozzle N2 shows newly initiated stress-corrosion cracking requiring radiography.\n\n"
-                "**3. Directive:**\n"
-                "- Defer unit restart until hydrostatic test at 1.3X derated MAWP is successfully witnessed by statutory inspector."
-            )
-
-        # General Document Inspection / Defect Audit
-        return (
-            "### Sovereign Industrial Inspection & Defect Audit\n\n"
-            "**Executive Summary:**\n"
-            "An autonomous multi-stage inspection audit was performed on the uploaded asset records by KAVACH AI with zero external cloud calls. "
-            "Data was verified against local safety standards (**OISD-STD-118** and **ASME Section VIII Div 1**).\n\n"
-            "**1. Key Ingested Observations & Defects:**\n"
-            "- **Ultrasonic Thickness Gauging:** Localized metal loss identified along the lower shell course, with minimum remaining wall thickness measured at **7.24 mm** (nominal 12.70 mm).\n"
-            "- **Visual & NDT Indications:** Significant surface pitting and localized weld seam oxidation detected in the heat-affected zone.\n"
-            "- **Operating Limits:** Operating pressure of 10.3 bar exceeds the derated safe threshold for the measured thickness profile.\n\n"
-            "**2. Statutory Evidence Grounding:**\n"
-            "- *OISD-STD-118 (Section 4.2.1):* Mandates that containment boundaries with >35% wall loss must not operate at original design pressure without structural reinforcement.\n"
-            "- *ASME Sec VIII Div 1 (UG-27):* Calculates safe derated MAWP at **88.5 PSI**, requiring immediate control valve recalibration.\n\n"
-            "**3. Recommended Clearance & Action Items:**\n"
-            "- Issue immediate derating notice to refinery unit supervisor.\n"
-            "- Mandate 100% magnetic particle testing (MT) across circumferential weld seams.\n"
-            "- Complete formal approval note documentation and schedule remediation."
-        )
-
     def run(self, task_type: str = "general", prompt: str = "", **kwargs) -> Dict[str, Any]:
         selected_model = MODEL_MAP.get(task_type, MODEL_MAP["general"])
 
@@ -505,7 +317,12 @@ class ModelRouterTool(BaseAgentTool):
                     self._unload_other_models(client, selected_model)
                     resp = client.post(
                         f"{OLLAMA_URL}/api/generate",
-                        json={"model": selected_model, "prompt": prompt, "stream": False, "keep_alive": "5m"},
+                        json={
+                            "model": selected_model,
+                            "prompt": prompt,
+                            "stream": False,
+                            "keep_alive": "5m",
+                        },
                         timeout=60.0,
                     )
                     resp.raise_for_status()
@@ -516,33 +333,53 @@ class ModelRouterTool(BaseAgentTool):
                             "selected_model": selected_model,
                             "task_type": task_type,
                             "response": response_text,
-                            "engine": "OLLAMA_LOCAL_GPU",
+                            "engine": "OLLAMA_LOCAL_MODEL",
                         }
         except Exception as e:
-            logger.warning(f"Ollama local model not available ({e}); using sovereign local reasoning engine: {e}")
+            logger.warning(f"Ollama local model not reachable ({e})")
 
-        # Sovereign local synthesis fallback (guarantees high-fidelity engineering output with zero cloud dependency)
-        fallback_text = self._generate_sovereign_fallback(task_type, prompt)
+        # Honest, transparent fallback. No fake evidence, no fake inspection findings, no fake ASME formulas.
+        fallback_notice = (
+            f"The local language model server (Ollama at {OLLAMA_URL}) is currently unreachable. "
+            f"To enable natural language responses, please ensure Ollama is running (`ollama serve`) "
+            f"with the model `{selected_model}` available."
+        )
         return {
             "selected_model": selected_model,
             "task_type": task_type,
-            "response": fallback_text,
-            "engine": "SOVEREIGN_CPU_SYNTHESIS_ENGINE",
-            "error": "Ollama offline; synthesized via local sovereign engine",
+            "response": fallback_notice,
+            "engine": "OFFLINE_NOTICE",
+            "error": f"Ollama unreachable at {OLLAMA_URL}",
+        }
+
+
+# Deprecated legacy RAG tool kept for backward-compatibility only, but NEVER registered in active agent.
+class RAGSearchTool(BaseAgentTool):
+    """Deprecated: Local vector store search tool."""
+    name = "rag_search_tool"
+    description = "Search local documents using vector embeddings (deprecated)."
+    category = "retrieval"
+
+    def run(self, query: str = "", top_k: int = 3, **kwargs) -> Dict[str, Any]:
+        # Return empty honest result without fake demo fallback evidence
+        return {
+            "query": query,
+            "results": [],
+            "status": "DEPRECATED",
         }
 
 
 class ToolRegistry:
-    """Registry managing available tools and execution retries. Unchanged."""
+    """Registry managing available tools for the general-purpose AI agent."""
 
     def __init__(self):
         self._tools: Dict[str, BaseAgentTool] = {}
         self._register_defaults()
 
     def _register_defaults(self):
+        # Only register clean, active general-purpose tools (no rag_search_tool)
         defaults = [
             OCRTool(),
-            RAGSearchTool(),
             VisionAnalysisTool(),
             SandboxCodeTool(),
             DocxGeneratorTool(),

@@ -3,20 +3,13 @@ import {
   UploadCloud,
   FileText,
   X,
-  ScanLine,
-  CheckCircle2,
+  Send,
   RotateCcw,
   Square,
   AlertTriangle,
-  Zap,
-  Cpu,
-  ShieldCheck,
   ArrowRight,
-  Activity,
-  Calculator,
-  Layers,
-  BookOpen,
   Wifi,
+  Sparkles,
 } from "lucide-react";
 import ReactMarkdown from 'react-markdown';
 import rehypeHighlight from 'rehype-highlight';
@@ -25,7 +18,7 @@ import './markdown.css';
 import type { AgentState, HumanDecision } from "../types/agent";
 import { DeliverablesPreview } from "./DeliverablesPreview";
 import { AgentThinkingSteps } from "./AgentThinkingSteps";
-import { sampleIndustrialScenarios } from "../services/api";
+import { sampleScenarios } from "../services/api";
 
 interface Props {
   state: AgentState | null;
@@ -78,7 +71,7 @@ export const ScanWorkbench: React.FC<Props> = ({
     setFiles((prev) => prev.filter((_, i) => i !== idx));
   };
 
-  const handleSelectScenario = (sc: (typeof sampleIndustrialScenarios)[0]) => {
+  const handleSelectScenario = (sc: (typeof sampleScenarios)[0]) => {
     setQuery(sc.query);
   };
 
@@ -113,43 +106,29 @@ export const ScanWorkbench: React.FC<Props> = ({
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem", width: "100%", maxWidth: "1280px", margin: "0 auto", paddingBottom: "3rem" }}>
-      {/* ── Top Sovereignty Proof Bar ── */}
+      {/* ── Status Header Bar ── */}
       <div
         className="panel"
         style={{
-          padding: "0.85rem 1.25rem",
+          padding: "0.75rem 1.25rem",
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
           flexWrap: "wrap",
           gap: "0.75rem",
-          background: "linear-gradient(90deg, #ffffff 0%, #f8fafc 100%)",
+          background: "#ffffff",
           border: "1px solid var(--border-dim)",
+          borderRadius: "8px",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-          <div
-            style={{
-              width: "28px",
-              height: "28px",
-              borderRadius: "6px",
-              background: "#0f172a",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              flexShrink: 0,
-            }}
-          >
-            <ShieldCheck size={16} color="#38bdf8" />
-          </div>
-          <div>
-            <div style={{ fontSize: "0.825rem", fontWeight: 700, color: "var(--brand-navy)" }}>
-              SOVEREIGN ON-PREMISE AIR-GAPPED ASSISTANT
-            </div>
-            <div style={{ fontSize: "0.725rem", color: "var(--text-muted)" }}>
-              Zero telemetry egress • Local Ollama models & CPU Tesseract OCR • 100% on-hardware
-            </div>
-          </div>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+          <Sparkles size={16} color="var(--brand-blue)" />
+          <span style={{ fontSize: "0.85rem", fontWeight: 700, color: "var(--brand-navy)" }}>
+            KAVACH AI — On-Premise General Assistant
+          </span>
+          <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
+            • Local LLM & OCR • Air-Gapped
+          </span>
         </div>
 
         {onNavigateToNetwork && (
@@ -158,10 +137,10 @@ export const ScanWorkbench: React.FC<Props> = ({
             className="btn btn--secondary"
             style={{
               fontSize: "0.775rem",
-              padding: "0.4rem 0.85rem",
+              padding: "0.35rem 0.75rem",
               display: "flex",
               alignItems: "center",
-              gap: "0.45rem",
+              gap: "0.4rem",
               borderColor: "#bbf7d0",
               background: "#f0fdf4",
               color: "var(--green-600)",
@@ -169,7 +148,7 @@ export const ScanWorkbench: React.FC<Props> = ({
             }}
           >
             <Wifi size={14} />
-            <span>Air-Gap Network Audit (Live psutil)</span>
+            <span>Network Monitor</span>
             <ArrowRight size={13} />
           </button>
         )}
@@ -191,7 +170,7 @@ export const ScanWorkbench: React.FC<Props> = ({
           <AlertTriangle size={18} color="var(--red-500)" style={{ flexShrink: 0, marginTop: "2px" }} />
           <div style={{ flex: 1 }}>
             <p style={{ fontWeight: 600, fontSize: "0.875rem", color: "var(--red-500)", marginBottom: "0.2rem" }}>
-              Execution Notice
+              Notice
             </p>
             <p style={{ fontSize: "0.825rem", color: "var(--text-primary)" }}>{error}</p>
           </div>
@@ -201,49 +180,26 @@ export const ScanWorkbench: React.FC<Props> = ({
         </div>
       )}
 
-      {/* ── Conversational View Area ── */}
+      {/* ── Welcome Area & Scenario Starters ── */}
       {!state && !isRunning && (
-        /* Welcome / Scenario Starters */
-        <div className="panel" style={{ padding: "1.75rem", background: "#ffffff" }}>
-          <div style={{ textAlign: "center", maxWidth: "680px", margin: "0 auto 1.75rem auto" }}>
-            <div
-              style={{
-                width: "48px",
-                height: "48px",
-                borderRadius: "12px",
-                background: "linear-gradient(135deg, #0f172a 0%, #1e293b 100%)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                margin: "0 auto 1rem auto",
-                boxShadow: "0 4px 12px rgba(15, 23, 42, 0.15)",
-              }}
-            >
-              <ShieldCheck size={26} color="#ffffff" />
-            </div>
-            <h2 style={{ fontSize: "1.35rem", fontWeight: 800, color: "var(--brand-navy)", marginBottom: "0.5rem" }}>
-              How can KAVACH AI assist your inspection today?
+        <div className="panel" style={{ padding: "2rem", background: "#ffffff", borderRadius: "10px", border: "1px solid var(--border-dim)" }}>
+          <div style={{ textAlign: "center", maxWidth: "600px", margin: "0 auto 2rem auto" }}>
+            <h2 style={{ fontSize: "1.5rem", fontWeight: 800, color: "var(--brand-navy)", marginBottom: "0.5rem" }}>
+              How can I help you today?
             </h2>
             <p style={{ fontSize: "0.875rem", color: "var(--text-muted)", lineHeight: 1.5 }}>
-              Ask an engineering query, request statutory derating calculations, analyze ultrasonic scans, or compare multi-document maintenance records under zero-cloud isolation.
+              Ask a question, request code execution, or attach documents to summarize and analyze.
             </p>
           </div>
 
-          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.85rem", color: "var(--brand-navy)" }}>
-            <Zap size={15} color="var(--brand-blue)" />
-            <span style={{ fontSize: "0.825rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em" }}>
-              Quick Scenario Starters (Single-Click Load)
-            </span>
-          </div>
-
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "0.75rem" }}>
-            {sampleIndustrialScenarios.map((sc) => (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "0.85rem" }}>
+            {sampleScenarios.map((sc) => (
               <button
                 key={sc.id}
                 onClick={() => handleSelectScenario(sc)}
                 style={{
                   textAlign: "left",
-                  padding: "0.85rem 1rem",
+                  padding: "1rem",
                   background: query === sc.query ? "#f0f9ff" : "var(--bg-raised)",
                   border: "1px solid",
                   borderColor: query === sc.query ? "#bae6fd" : "var(--border-dim)",
@@ -252,10 +208,10 @@ export const ScanWorkbench: React.FC<Props> = ({
                   transition: "all 0.15s ease",
                 }}
               >
-                <div style={{ fontSize: "0.825rem", fontWeight: 700, color: "var(--brand-navy)", marginBottom: "0.3rem" }}>
+                <div style={{ fontSize: "0.85rem", fontWeight: 700, color: "var(--brand-navy)", marginBottom: "0.35rem" }}>
                   {sc.title}
                 </div>
-                <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>
+                <div style={{ fontSize: "0.775rem", color: "var(--text-muted)", overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", lineHeight: 1.4 }}>
                   {sc.query}
                 </div>
               </button>
@@ -282,14 +238,14 @@ export const ScanWorkbench: React.FC<Props> = ({
           >
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <span style={{ fontSize: "0.75rem", fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                User Directives & Ingested Query
+                User Query
               </span>
               <button
                 onClick={handleResetAll}
                 className="btn btn--secondary"
                 style={{ padding: "0.25rem 0.6rem", fontSize: "0.725rem", display: "flex", alignItems: "center", gap: "0.3rem" }}
               >
-                <RotateCcw size={12} /> Start New Inspection
+                <RotateCcw size={12} /> New conversation
               </button>
             </div>
 
@@ -324,116 +280,38 @@ export const ScanWorkbench: React.FC<Props> = ({
             )}
           </div>
 
-          {/* Live Agent Thinking & Execution State */}
+          {/* Reasoning & Execution Trace Timeline */}
           <AgentThinkingSteps
             state={state}
             isRunning={isRunning}
-            activeQuery={activeQueryPrompt || state?.user_query || ""}
-            defaultExpanded={isRunning}
+            activeQuery={activeQueryPrompt || state?.user_query}
           />
 
-          {/* Stop Button Banner while running */}
-          {isRunning && (
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                padding: "0.75rem 1.25rem",
-                background: "#fef2f2",
-                border: "1px solid #fecaca",
-                borderRadius: "8px",
-              }}
-            >
-              <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", color: "var(--red-600)" }}>
-                <Activity size={16} style={{ animation: "spin 1.5s linear infinite" }} />
-                <span style={{ fontSize: "0.825rem", fontWeight: 600 }}>
-                  Agent is generating response and executing local tools...
-                </span>
-              </div>
-
-              {onStopTask && (
-                <button
-                  onClick={onStopTask}
-                  className="btn btn--danger"
-                  style={{ padding: "0.4rem 1rem", fontSize: "0.8rem", display: "flex", alignItems: "center", gap: "0.4rem" }}
-                >
-                  <Square size={13} fill="currentColor" />
-                  <span>Stop Generation</span>
-                </button>
-              )}
-            </div>
-          )}
-
-          {/* ── THE SINGLE UNIFIED RESPONSE CARD ── */}
-          {state && !isRunning && (
+          {/* Agent Response Card */}
+          {state && (state.text_response || state.findings?.synthesized_analysis) && (
             <div
               className="panel"
               style={{
-                background: "#ffffff",
-                padding: "1.75rem",
                 display: "flex",
                 flexDirection: "column",
-                gap: "1.5rem",
-                border: "1px solid var(--border-base)",
-                boxShadow: "0 4px 16px rgba(0, 0, 0, 0.05)",
+                gap: "1.25rem",
+                padding: "1.5rem",
+                background: "#ffffff",
+                border: "1px solid var(--border-dim)",
+                borderRadius: "10px",
+                boxShadow: "0 2px 8px rgba(0, 0, 0, 0.04)",
               }}
             >
-              {/* Response Header */}
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  flexWrap: "wrap",
-                  gap: "0.75rem",
-                  borderBottom: "1px solid var(--border-dim)",
-                  paddingBottom: "1rem",
-                }}
-              >
-                <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-                  <div
-                    style={{
-                      width: "38px",
-                      height: "38px",
-                      borderRadius: "8px",
-                      background: "#f0fdf4",
-                      border: "1px solid #bbf7d0",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      flexShrink: 0,
-                    }}
-                  >
-                    <CheckCircle2 size={20} color="var(--green-600)" />
-                  </div>
-                  <div>
-                    <div style={{ fontSize: "0.95rem", fontWeight: 700, color: "var(--brand-navy)" }}>
-                      Sovereign Agent Response
-                    </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", fontSize: "0.75rem", color: "var(--text-muted)", marginTop: "2px" }}>
-                      <span style={{ display: "flex", alignItems: "center", gap: "0.25rem" }}>
-                        <Cpu size={13} color="var(--brand-blue)" />
-                        Model: <strong style={{ color: "var(--brand-navy)" }}>{activeModel}</strong>
-                      </span>
-                      <span>•</span>
-                      <span style={{ color: "var(--green-600)", fontWeight: 600 }}>0 Cloud Egress</span>
-                    </div>
-                  </div>
-                </div>
-
-                {onNavigateToNetwork && (
-                  <button
-                    onClick={onNavigateToNetwork}
-                    className="btn btn--secondary"
-                    style={{ fontSize: "0.75rem", padding: "0.35rem 0.75rem" }}
-                  >
-                    <Wifi size={13} /> View Live Sockets
-                  </button>
-                )}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.5rem" }}>
+                <span style={{ fontSize: "0.85rem", fontWeight: 700, color: "var(--brand-navy)" }}>
+                  Response
+                </span>
+                <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
+                  Model: <strong style={{ color: "var(--brand-navy)" }}>{activeModel}</strong>
+                </span>
               </div>
 
-              {/* 1. WRITTEN ANSWER (ALWAYS PRESENT) */}
+              {/* Written Answer */}
               <div
                 className="markdown-body"
                 style={{
@@ -446,192 +324,17 @@ export const ScanWorkbench: React.FC<Props> = ({
                   padding: "1.5rem",
                 }}
               >
-                <ReactMarkdown children={state.text_response || state.findings?.synthesized_analysis || "Inspection analysis completed."} rehypePlugins={[rehypeHighlight]} />
+                <ReactMarkdown children={state.text_response || state.findings?.synthesized_analysis || ""} rehypePlugins={[rehypeHighlight]} />
               </div>
 
-              {/* 2. VISIBLE STEP-BY-STEP CALCULATION CARD (IF APPLICABLE) */}
-              {state.calculation_details && (
-                <div
-                  style={{
-                    background: "#ffffff",
-                    border: "1px solid #bae6fd",
-                    borderRadius: "8px",
-                    overflow: "hidden",
-                  }}
-                >
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "0.5rem",
-                      padding: "0.75rem 1.25rem",
-                      background: "#f0f9ff",
-                      borderBottom: "1px solid #bae6fd",
-                    }}
-                  >
-                    <Calculator size={17} color="var(--brand-blue)" />
-                    <span style={{ fontSize: "0.85rem", fontWeight: 700, color: "var(--brand-navy)" }}>
-                      {state.calculation_details.standard || "Statutory Engineering Calculation"}
-                    </span>
-                  </div>
-
-                  <div style={{ padding: "1.25rem", display: "flex", flexDirection: "column", gap: "1rem" }}>
-                    {state.calculation_details.formula && (
-                      <div style={{ background: "#f8fafc", border: "1px solid var(--border-dim)", borderRadius: "6px", padding: "0.75rem 1rem", fontFamily: "var(--font-mono)", fontSize: "0.85rem", color: "var(--brand-blue)", fontWeight: 600 }}>
-                        Governing Formula: {state.calculation_details.formula}
-                      </div>
-                    )}
-
-                    {state.calculation_details.steps && (
-                      <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
-                        {state.calculation_details.steps.map((st, i) => (
-                          <div
-                            key={i}
-                            style={{
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "space-between",
-                              padding: "0.65rem 1rem",
-                              background: i % 2 === 0 ? "#ffffff" : "#f8fafc",
-                              border: "1px solid var(--border-dim)",
-                              borderRadius: "6px",
-                              fontSize: "0.825rem",
-                            }}
-                          >
-                            <span style={{ fontWeight: 600, color: "var(--brand-navy)" }}>
-                              Step {st.step}: {st.title}
-                            </span>
-                            <span style={{ fontFamily: "var(--font-mono)", color: "var(--text-muted)" }}>
-                              {st.formula}
-                            </span>
-                            <span style={{ fontFamily: "var(--font-mono)", fontWeight: 700, color: "var(--brand-blue)" }}>
-                              = {st.result}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-
-                    {state.calculation_details.verdict && (
-                      <div
-                        style={{
-                          padding: "0.75rem 1rem",
-                          background: "#fffbe6",
-                          border: "1px solid #ffe58f",
-                          borderRadius: "6px",
-                          fontSize: "0.825rem",
-                          fontWeight: 700,
-                          color: "#d48806",
-                        }}
-                      >
-                        Statutory Verdict: {state.calculation_details.verdict}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {/* 3. MULTI-DOCUMENT COMPARATIVE MATRIX (IF APPLICABLE) */}
-              {state.multi_doc_comparison && (
-                <div
-                  style={{
-                    background: "#ffffff",
-                    border: "1px solid #cbd5e1",
-                    borderRadius: "8px",
-                    overflow: "hidden",
-                  }}
-                >
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      padding: "0.75rem 1.25rem",
-                      background: "#f1f5f9",
-                      borderBottom: "1px solid #cbd5e1",
-                    }}
-                  >
-                    <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                      <Layers size={17} color="var(--brand-navy)" />
-                      <span style={{ fontSize: "0.85rem", fontWeight: 700, color: "var(--brand-navy)" }}>
-                        Multi-Document Variance Analysis
-                      </span>
-                    </div>
-                    <span style={{ fontSize: "0.75rem", fontFamily: "var(--font-mono)", color: "var(--text-muted)" }}>
-                      {state.multi_doc_comparison.doc1} ⟷ {state.multi_doc_comparison.doc2}
-                    </span>
-                  </div>
-
-                  <div style={{ overflowX: "auto", padding: "0.75rem" }}>
-                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.825rem", textAlign: "left" }}>
-                      <thead>
-                        <tr style={{ background: "#f8fafc", borderBottom: "1px solid var(--border-dim)" }}>
-                          <th style={{ padding: "0.6rem 0.85rem" }}>Inspection Parameter</th>
-                          <th style={{ padding: "0.6rem 0.85rem" }}>Baseline Record</th>
-                          <th style={{ padding: "0.6rem 0.85rem" }}>Current Record</th>
-                          <th style={{ padding: "0.6rem 0.85rem" }}>Variance / Progression</th>
-                          <th style={{ padding: "0.6rem 0.85rem" }}>Risk Level</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {state.multi_doc_comparison.metrics?.map((m, i) => (
-                          <tr key={i} style={{ borderBottom: "1px solid var(--border-dim)" }}>
-                            <td style={{ padding: "0.6rem 0.85rem", fontWeight: 600 }}>{m.parameter}</td>
-                            <td style={{ padding: "0.6rem 0.85rem" }}>{m.baseline}</td>
-                            <td style={{ padding: "0.6rem 0.85rem" }}>{m.current}</td>
-                            <td style={{ padding: "0.6rem 0.85rem", color: "var(--brand-blue)", fontFamily: "var(--font-mono)", fontWeight: 600 }}>{m.variance}</td>
-                            <td style={{ padding: "0.6rem 0.85rem" }}>
-                              <span style={{ padding: "0.15rem 0.45rem", borderRadius: "4px", fontSize: "0.7rem", fontWeight: 700, background: m.severity === "CRITICAL" ? "#fee2e2" : "#fef3c7", color: m.severity === "CRITICAL" ? "#dc2626" : "#b45309" }}>
-                                {m.severity}
-                              </span>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
-
-              {/* 4. ATTACHED DELIVERABLES (DOCX / XLSX / SANDBOX ARTIFACTS ONLY IF GENERATED) */}
+              {/* Deliverables / Execution Artifacts if any were generated */}
               <DeliverablesPreview state={state} />
-
-              {/* 5. SOP CITATIONS & STATUTORY GROUNDING */}
-              {state.retrieved_evidence && state.retrieved_evidence.length > 0 && (
-                <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", fontSize: "0.825rem", fontWeight: 700, color: "var(--brand-navy)" }}>
-                    <BookOpen size={15} color="var(--brand-blue)" />
-                    <span>Grounded SOP Evidence Citations ({state.retrieved_evidence.length})</span>
-                  </div>
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "0.6rem" }}>
-                    {state.retrieved_evidence.slice(0, 4).map((ev, i) => (
-                      <div
-                        key={i}
-                        style={{
-                          padding: "0.75rem 1rem",
-                          background: "var(--bg-raised)",
-                          border: "1px solid var(--border-dim)",
-                          borderRadius: "6px",
-                          fontSize: "0.775rem",
-                        }}
-                      >
-                        <div style={{ fontWeight: 700, color: "var(--brand-navy)", marginBottom: "0.2rem" }}>
-                          {ev.source_doc} {ev.page_num ? `(Page ${ev.page_num})` : ""}
-                        </div>
-                        <div style={{ color: "var(--text-muted)", fontStyle: "italic", lineHeight: 1.4 }}>
-                          "{ev.snippet}"
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
             </div>
           )}
         </div>
       )}
 
-      {/* ── Single Unified Chat Input Box (Pinned / Accessible) ── */}
+      {/* ── Single Unified Chat Input Box ── */}
       <div
         className="panel"
         style={{
@@ -703,7 +406,7 @@ export const ScanWorkbench: React.FC<Props> = ({
               }}
             >
               <UploadCloud size={16} color="var(--brand-blue)" />
-              <span>Attach inspection reports, scanned PDFs, images, or telemetry CSVs (optional)</span>
+              <span>Attach documents or images for analysis (optional)</span>
             </div>
           )}
           <input
@@ -724,7 +427,7 @@ export const ScanWorkbench: React.FC<Props> = ({
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
             disabled={isRunning}
-            placeholder="Ask an inspection question, request statutory derating calculation, or enter directives (Press Enter to Send)..."
+            placeholder="Ask a question or describe a task... (Press Enter to Send)"
             style={{
               flex: 1,
               resize: "none",
@@ -754,8 +457,8 @@ export const ScanWorkbench: React.FC<Props> = ({
                 onClick={handleSubmit}
                 style={{ padding: "0.75rem 1.5rem", fontSize: "0.875rem", display: "flex", alignItems: "center", gap: "0.4rem" }}
               >
-                <ScanLine size={16} />
-                <span>{isUploading ? "Uploading..." : "Send Prompt"}</span>
+                <Send size={15} />
+                <span>{isUploading ? "Uploading..." : "Send"}</span>
               </button>
             )}
           </div>

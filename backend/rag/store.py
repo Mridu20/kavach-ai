@@ -60,7 +60,7 @@ class LocalVectorStore:
         embedding_model: str = DEFAULT_EMBEDDING_MODEL,
         chunk_size: int = 500,
         chunk_overlap: int = 100,
-        auto_seed: bool = True,
+        auto_seed: bool = False,
     ):
         self.db_path = os.path.abspath(db_path)
         self.collection_name = collection_name
