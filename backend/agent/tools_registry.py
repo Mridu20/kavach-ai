@@ -43,6 +43,31 @@ MODEL_MAP = {
     "vision": "qwen2.5vl:7b-q4_K_M",
 }
 
+# Task-specific system prompts grounding Ollama in precise sovereign engineering roles
+SYSTEM_PROMPTS = {
+    "general": (
+        "You are KAVACH AI, an air-gapped sovereign industrial intelligence assistant developed for refinery and plant operations. "
+        "Provide direct, professional, and helpful responses. For greetings or introductory queries, respond warmly and describe "
+        "your capabilities in plant inspection, SOP retrieval, sandbox telemetry execution, and official deliverable generation. "
+        "Never invent plant defects, hypothetical scenarios, or placeholder templates unless the user explicitly provides inspection data."
+    ),
+    "reasoning": (
+        "You are KAVACH AI Sovereign Reasoning Engine. You are synthesizing a plant inspection finding from the OCR/vision/RAG "
+        "evidence provided into a concise, professional engineering summary. Ground your findings strictly in the provided evidence. "
+        "Do not invent findings or regulatory clauses not present in the evidence. Clearly state asset integrity status, "
+        "severity levels, and recommended actions."
+    ),
+    "coding": (
+        "You are KAVACH AI Sovereign Code & Telemetry Specialist. You analyze industrial scripts, telemetry sensor data, "
+        "and sandboxed execution outputs with zero network leakage. Provide verified technical deductions, calculate anomalous "
+        "threshold excursions, and explain code execution results clearly."
+    ),
+    "vision": (
+        "You are KAVACH AI Vision & NDT Inspection Specialist. You analyze plant inspection photographs, P&ID engineering diagrams, "
+        "and Non-Destructive Testing (NDT) indications. Report only observable visual defects, crack dimensions, or corrosion patterns."
+    ),
+}
+
 
 class BaseAgentTool(ABC):
     """Abstract Base Class for all KAVACH AI agent tools."""
@@ -94,12 +119,16 @@ class RAGSearchTool(BaseAgentTool):
                 return {
                     "query": query,
                     "results": results,
+                    "fallback_data": False,
+                    "FALLBACK_DATA": False,
+                    "is_fallback": False,
                 }
         except Exception as e:
             logger.warning(f"RAG store unreachable, using fallback demo evidence: {e}")
 
         # Only reached if the vector store itself raised an exception
         # (e.g. ChromaDB not initialized yet), not on a genuine empty match.
+        # Explicitly tagged with FALLBACK_DATA: True so callers/UI can surface it honestly.
         return {
             "query": query,
             "results": [
@@ -109,6 +138,8 @@ class RAGSearchTool(BaseAgentTool):
                     "score": 0.92,
                     "snippet": "Section 4.2: Pressure vessel inspection must mandate immediate shutdown if corrosion exceeds 0.5mm.",
                     "source": "DEMO_FALLBACK",
+                    "fallback": True,
+                    "is_fallback": True,
                 },
                 {
                     "doc_name": "Maintenance_Manual_Turbine_2025.pdf",
@@ -116,8 +147,14 @@ class RAGSearchTool(BaseAgentTool):
                     "score": 0.87,
                     "snippet": "Section 2.1: Secondary containment seal replacement required every 12 months.",
                     "source": "DEMO_FALLBACK",
+                    "fallback": True,
+                    "is_fallback": True,
                 },
             ],
+            "fallback_data": True,
+            "FALLBACK_DATA": True,
+            "is_fallback": True,
+            "warning": "RAG vector store offline; reference fallback evidence citations returned.",
         }
 
 
@@ -250,6 +287,55 @@ class SandboxCodeTool(BaseAgentTool):
                 }
 
 
+def _add_styled_runs(paragraph, text: str):
+    """Splits text on **bold** and `code` markers and adds appropriately styled runs."""
+    import re
+    parts = re.split(r"(\*\*.*?\*\*|`.*?`)", text)
+    for part in parts:
+        if part.startswith("**") and part.endswith("**") and len(part) >= 4:
+            run = paragraph.add_run(part[2:-2])
+            run.bold = True
+        elif part.startswith("`") and part.endswith("`") and len(part) >= 2:
+            run = paragraph.add_run(part[1:-1])
+            run.italic = True
+        else:
+            paragraph.add_run(part)
+
+
+def _add_markdown_content_to_doc(doc, text: str):
+    """Parses markdown headings, bold text, bullet points, and paragraphs into python-docx."""
+    import re
+    lines = text.strip().splitlines()
+    for line in lines:
+        line_s = line.strip()
+        if not line_s:
+            continue
+        if line_s.startswith("### "):
+            doc.add_heading(line_s[4:], level=3)
+        elif line_s.startswith("## "):
+            doc.add_heading(line_s[3:], level=2)
+        elif line_s.startswith("# "):
+            doc.add_heading(line_s[2:], level=2)
+        elif line_s.startswith("- ") or line_s.startswith("* "):
+            bullet_text = line_s[2:]
+            try:
+                p = doc.add_paragraph(style='List Bullet')
+            except Exception:
+                p = doc.add_paragraph()
+                p.add_run("• ")
+            _add_styled_runs(p, bullet_text)
+        elif re.match(r"^\d+\.\s+", line_s):
+            num_text = re.sub(r"^\d+\.\s+", "", line_s)
+            try:
+                p = doc.add_paragraph(style='List Number')
+            except Exception:
+                p = doc.add_paragraph()
+            _add_styled_runs(p, num_text)
+        else:
+            p = doc.add_paragraph()
+            _add_styled_runs(p, line_s)
+
+
 class DocxGeneratorTool(BaseAgentTool):
     """Generates a real .docx approval note via python-docx with synthesized findings."""
     name = "generate_docx_tool"
@@ -276,10 +362,10 @@ class DocxGeneratorTool(BaseAgentTool):
             doc.add_paragraph(f"Task Reference: {task_id}")
 
         doc.add_heading("Executive Summary", level=2)
-        # Prefer the synthesized LLM analysis if available
+        # Consume the synthesized LLM analysis if available
         synthesized = findings.get("synthesized_analysis", "")
         if synthesized:
-            doc.add_paragraph(synthesized)
+            _add_markdown_content_to_doc(doc, synthesized)
         else:
             doc.add_paragraph(
                 "This approval note was generated locally by the KAVACH AI Sovereign "
@@ -288,45 +374,95 @@ class DocxGeneratorTool(BaseAgentTool):
 
         doc.add_heading("Detailed Findings", level=2)
         has_content = False
+
+        # 1. Structured Findings Table
+        structured = findings.get("structured_findings")
+        if structured and isinstance(structured, list) and len(structured) > 0:
+            has_content = True
+            p_head = doc.add_paragraph()
+            r_head = p_head.add_run("Identified Equipment Defects & NDT Observations:")
+            r_head.bold = True
+
+            table = doc.add_table(rows=1, cols=4)
+            try:
+                table.style = 'Light Shading Accent 1'
+            except Exception:
+                pass
+            hdr_cells = table.rows[0].cells
+            hdr_cells[0].text = "Item / Location"
+            hdr_cells[1].text = "Severity"
+            hdr_cells[2].text = "Observation"
+            hdr_cells[3].text = "Recommended Action"
+            for cell in hdr_cells:
+                for p in cell.paragraphs:
+                    for r in p.runs:
+                        r.bold = True
+
+            for sf in structured:
+                if isinstance(sf, dict):
+                    row_cells = table.add_row().cells
+                    row_cells[0].text = str(sf.get("location") or sf.get("component") or sf.get("item_id") or "Asset")
+                    row_cells[1].text = str(sf.get("severity") or "MEDIUM").upper()
+                    row_cells[2].text = str(sf.get("description") or "")
+                    row_cells[3].text = str(sf.get("recommended_action") or "Action required")
+
+        # 2. Key raw findings items (excluding raw dumps of already presented sections)
         for key, value in findings.items():
-            if key in ("synthesized_analysis", "model_used", "model_error"):
-                continue  # already shown above or not user-facing
+            if key in ("synthesized_analysis", "structured_findings", "model_used", "model_error", "synthesis_engine", "rag_fallback_used"):
+                continue
             if value is None or value == "" or value == 0:
                 continue
             has_content = True
             p = doc.add_paragraph()
             run = p.add_run(f"{key.replace('_', ' ').title()}: ")
             run.bold = True
-            # Truncate very long values for readability
             val_str = str(value)
-            if len(val_str) > 500:
-                val_str = val_str[:500] + "..."
+            if len(val_str) > 400:
+                val_str = val_str[:400] + "..."
             p.add_run(val_str)
+
         if not has_content:
-            doc.add_paragraph("No findings were recorded for this task.")
+            doc.add_paragraph("No additional raw findings were recorded for this task.")
 
         if evidence:
             doc.add_heading("SOP Evidence & Citations", level=2)
-            for ev in evidence:
-                if hasattr(ev, 'source_doc'):
-                    doc.add_paragraph(
-                        f"[{ev.source_doc}, p.{ev.page_num}] {ev.snippet}",
-                        style='List Bullet',
-                    )
-                elif isinstance(ev, dict):
-                    doc.add_paragraph(
-                        f"[{ev.get('source_doc', 'Unknown')}, p.{ev.get('page_num', 'N/A')}] {ev.get('snippet', '')}",
-                        style='List Bullet',
-                    )
+            has_fallback = (
+                findings.get("rag_fallback_used", False)
+                or any(getattr(ev, 'is_fallback', False) or (isinstance(ev, dict) and ev.get('is_fallback')) for ev in evidence)
+            )
+            if has_fallback:
+                p_warn = doc.add_paragraph()
+                r_warn = p_warn.add_run("NOTICE: Vector RAG store was offline during retrieval. The following reference citations are fallback baseline standards:")
+                r_warn.italic = True
 
-        doc.add_heading("Recommendation", level=2)
+            for ev in evidence:
+                doc_name = getattr(ev, 'source_doc', None) or (ev.get('source_doc') if isinstance(ev, dict) else 'Local SOP')
+                page_num = getattr(ev, 'page_num', None) or (ev.get('page_num') if isinstance(ev, dict) else None)
+                snippet = getattr(ev, 'snippet', None) or (ev.get('snippet') if isinstance(ev, dict) else '')
+                is_fb = getattr(ev, 'is_fallback', False) or (isinstance(ev, dict) and ev.get('is_fallback', False))
+
+                page_txt = f", p.{page_num}" if (page_num is not None and str(page_num) != "None") else ""
+                fb_tag = " [DEMO FALLBACK]" if is_fb else ""
+
+                try:
+                    p = doc.add_paragraph(style='List Bullet')
+                except Exception:
+                    p = doc.add_paragraph()
+                    p.add_run("• ")
+
+                r_cite = p.add_run(f"[{doc_name}{page_txt}]{fb_tag}: ")
+                r_cite.bold = True
+                p.add_run(f'"{snippet}"')
+
+        doc.add_heading("Recommendation & Statutory Directives", level=2)
         if synthesized:
             doc.add_paragraph(
-                "The synthesized analysis above incorporates all inspection data and "
-                "SOP evidence. Findings should be reviewed and actioned per applicable standards."
+                "The synthesized engineering analysis above incorporates all extracted inspection data, "
+                "statutory safety thresholds, and SOP citations. All recommended remediation and derating actions "
+                "must be reviewed and authorized by the statutory inspector prior to asset clearance."
             )
         else:
-            doc.add_paragraph("Findings above should be reviewed and actioned per applicable SOPs.")
+            doc.add_paragraph("Findings above should be reviewed and actioned per applicable plant SOPs.")
 
         doc.add_paragraph("\n\nSignature: ______________________     Date: ______________")
 
@@ -354,24 +490,35 @@ class XlsxGeneratorTool(BaseAgentTool):
 
     def run(self, items: Optional[List[Dict[str, Any]]] = None, output_path: str = "Action_Tracker.xlsx", **kwargs) -> Dict[str, Any]:
         from openpyxl import Workbook
+        from openpyxl.styles import Font, PatternFill, Alignment
 
         items = items or []
         wb = Workbook()
         ws = wb.active
         ws.title = "Action Tracker"
 
-        headers = ["Task", "Priority", "Status"]
+        headers = ["Item #", "Action Item / Inspection Task", "Priority", "Status"]
         ws.append(headers)
-        for item in items:
-            ws.append([
-                item.get("task", ""),
-                item.get("priority", "MEDIUM"),
-                item.get("status", "OPEN"),
-            ])
+
+        # Style Header Row
+        header_fill = PatternFill(start_color="1E3A8A", end_color="1E3A8A", fill_type="solid")
+        header_font = Font(color="FFFFFF", bold=True)
+        for col_idx in range(1, len(headers) + 1):
+            cell = ws.cell(row=1, column=col_idx)
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+
+        for idx, item in enumerate(items, start=1):
+            task_text = item.get("task", "")
+            priority = str(item.get("priority", "MEDIUM")).upper()
+            status = str(item.get("status", "OPEN")).upper()
+            ws.append([idx, task_text, priority, status])
 
         for col_cells in ws.columns:
-            max_len = max(len(str(c.value)) for c in col_cells if c.value is not None) if col_cells else 10
-            ws.column_dimensions[col_cells[0].column_letter].width = max(12, max_len + 2)
+            max_len = max(len(str(c.value or "")) for c in col_cells) if col_cells else 10
+            col_letter = col_cells[0].column_letter
+            ws.column_dimensions[col_letter].width = min(max(12, max_len + 3), 80)
 
         safe_name = os.path.basename(output_path)
         full_path = os.path.join(OUTPUT_DIR, safe_name)
@@ -410,8 +557,21 @@ class ModelRouterTool(BaseAgentTool):
                 except Exception:
                     pass
 
-    def _generate_sovereign_fallback(self, task_type: str, prompt: str) -> str:
-        prompt_lower = prompt.lower()
+    def _generate_sovereign_fallback(self, task_type: str, prompt: str, is_conversational: bool = False) -> str:
+        prompt_lower = prompt.lower().strip()
+
+        # Conversational / Greetings / General Inquiry Guard
+        if is_conversational or prompt_lower in ["hi", "hello", "hey", "help", "who are you", "what can you do", "status", "greetings", "good morning", "good afternoon"]:
+            return (
+                "Hello! I am **KAVACH AI**, your sovereign on-premise industrial AI assistant. "
+                "I operate in a strictly air-gapped environment with zero external cloud dependencies.\n\n"
+                "Here is how I can assist your plant operations:\n"
+                "- **Document Inspection & Defect Audit:** Upload scanned inspection reports, ultrasonic thickness logs, or NDT records for automated text extraction and defect analysis.\n"
+                "- **Statutory SOP & Guidance Retrieval:** Query local safety standards (OISD, ASME, API) and internal plant manuals.\n"
+                "- **Engineering Calculations:** Compute derated MAWP, corrosion rates, and equipment remaining life per ASME Section VIII / OISD-118.\n"
+                "- **Deliverable Generation:** Automatically produce signed Approval Notes (.docx) and Maintenance Action Trackers (.xlsx).\n\n"
+                "Please upload an inspection document or specify an asset query to begin."
+            )
 
         # Calculation / Engineering Derating
         if any(kw in prompt_lower for kw in ["mawp", "calculate", "derat", "thickness", "formula", "corrosion rate"]):
@@ -496,8 +656,16 @@ class ModelRouterTool(BaseAgentTool):
             "- Complete formal approval note documentation and schedule remediation."
         )
 
-    def run(self, task_type: str = "general", prompt: str = "", **kwargs) -> Dict[str, Any]:
+    def run(
+        self,
+        task_type: str = "general",
+        prompt: str = "",
+        system_prompt: Optional[str] = None,
+        is_conversational: bool = False,
+        **kwargs,
+    ) -> Dict[str, Any]:
         selected_model = MODEL_MAP.get(task_type, MODEL_MAP["general"])
+        effective_system = system_prompt or SYSTEM_PROMPTS.get(task_type, SYSTEM_PROMPTS["general"])
 
         try:
             with httpx.Client(timeout=10.0) as client:
@@ -505,7 +673,13 @@ class ModelRouterTool(BaseAgentTool):
                     self._unload_other_models(client, selected_model)
                     resp = client.post(
                         f"{OLLAMA_URL}/api/generate",
-                        json={"model": selected_model, "prompt": prompt, "stream": False, "keep_alive": "5m"},
+                        json={
+                            "model": selected_model,
+                            "system": effective_system,
+                            "prompt": prompt,
+                            "stream": False,
+                            "keep_alive": "5m",
+                        },
                         timeout=60.0,
                     )
                     resp.raise_for_status()
@@ -516,17 +690,19 @@ class ModelRouterTool(BaseAgentTool):
                             "selected_model": selected_model,
                             "task_type": task_type,
                             "response": response_text,
+                            "synthesized_analysis": response_text,
                             "engine": "OLLAMA_LOCAL_GPU",
                         }
         except Exception as e:
             logger.warning(f"Ollama local model not available ({e}); using sovereign local reasoning engine: {e}")
 
         # Sovereign local synthesis fallback (guarantees high-fidelity engineering output with zero cloud dependency)
-        fallback_text = self._generate_sovereign_fallback(task_type, prompt)
+        fallback_text = self._generate_sovereign_fallback(task_type, prompt, is_conversational=is_conversational)
         return {
             "selected_model": selected_model,
             "task_type": task_type,
             "response": fallback_text,
+            "synthesized_analysis": fallback_text,
             "engine": "SOVEREIGN_CPU_SYNTHESIS_ENGINE",
             "error": "Ollama offline; synthesized via local sovereign engine",
         }

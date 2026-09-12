@@ -47,10 +47,10 @@ export const NetworkMonitor: React.FC = () => {
     <div style={{ width: "100%" }}>
       <div style={{ marginBottom: "1.5rem" }}>
         <h2 style={{ fontWeight: 700, fontSize: "1.25rem", color: "var(--brand-navy)", marginBottom: "0.4rem" }}>
-          Real-Time Air-Gap & Network Sovereignty Monitor
+          Network Monitor
         </h2>
         <p style={{ fontSize: "0.875rem", color: "var(--text-muted)" }}>
-          Active socket audit verified locally every 2 seconds to guarantee zero egress data leakage to external clouds.
+          Live socket audit, polled every 2s.
         </p>
       </div>
 
@@ -102,7 +102,7 @@ export const NetworkMonitor: React.FC = () => {
       <div className="panel" style={{ overflow: "hidden", background: "#ffffff" }}>
         <div style={{ padding: "1rem 1.25rem", borderBottom: "1px solid var(--border-dim)", background: "#f8fafc" }}>
           <h3 style={{ fontSize: "0.9rem", fontWeight: 700, color: "var(--brand-navy)" }}>
-            Live Network Connections Audit Log
+            Active connections
           </h3>
         </div>
         <div style={{ overflowX: "auto" }}>
@@ -141,7 +141,7 @@ export const NetworkMonitor: React.FC = () => {
                         fontFamily: "var(--font-mono)",
                       }}
                     >
-                      {conn.isExternal ? "FLAGGED EXTERNAL" : "VERIFIED AIR-GAPPED"}
+                      {conn.isExternal ? "EXTERNAL" : "LOCAL"}
                     </span>
                   </td>
                 </tr>
@@ -149,7 +149,7 @@ export const NetworkMonitor: React.FC = () => {
               {stats && stats.connections.length === 0 && (
                 <tr>
                   <td colSpan={2} style={{ padding: "1.5rem", color: "var(--text-muted)", textAlign: "center" }}>
-                    No active outbound connections detected. System clean and sovereign.
+                    No active outbound connections detected.
                   </td>
                 </tr>
               )}

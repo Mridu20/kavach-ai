@@ -97,24 +97,24 @@ class TestAgentFramework(unittest.TestCase):
     def test_model_router_output_reaches_findings(self):
         """Regression test for ROOT CAUSE: model_router_tool output was silently dropped.
         
-        Previously _update_state_findings had no branch for model_router_tool,
-        so ALL its output was discarded. Now it writes model_used, model_error,
-        and (when Ollama is online) synthesized_analysis.
+        Asserts that model_router_tool writes synthesized_analysis into state.findings,
+        and that it is non-empty and substantive.
         """
         orchestrator = AgentOrchestrator()
         state = orchestrator.create_task(query="Inspect turbine report", input_files=["turbine.pdf"])
         orchestrator.run_all_steps(state)
 
-        # model_used is always set regardless of whether Ollama is reachable
+        # model_used must always be set
         self.assertIn("model_used", state.findings,
             "model_router_tool output should be written to state.findings['model_used']")
 
-        # If Ollama is offline, we get model_error; if online, synthesized_analysis
-        has_synthesis = "synthesized_analysis" in state.findings
-        has_error = "model_error" in state.findings
-        self.assertTrue(has_synthesis or has_error,
-            "model_router_tool should write either synthesized_analysis (Ollama online) "
-            "or model_error (Ollama offline) to state.findings")
+        # synthesized_analysis MUST reach state.findings and be non-empty
+        self.assertIn("synthesized_analysis", state.findings,
+            "synthesized_analysis must be present in state.findings when model_router_tool runs")
+        synthesis = state.findings["synthesized_analysis"]
+        self.assertIsInstance(synthesis, str)
+        self.assertGreater(len(synthesis.strip()), 50,
+            "state.findings['synthesized_analysis'] must contain substantive synthesized content, not an empty string")
 
     def test_xlsx_items_derived_from_findings(self):
         """Regression test: XLSX items were hardcoded to one fake task instead of real findings."""
@@ -126,34 +126,106 @@ class TestAgentFramework(unittest.TestCase):
         xlsx_calls = [tc for tc in state.tool_calls if tc.tool_name == "generate_xlsx_tool"]
         self.assertEqual(len(xlsx_calls), 1)
         items = xlsx_calls[0].input_params.get("items", [])
-        # Should have more than the old hardcoded single item
-        self.assertGreaterEqual(len(items), 1, "XLSX should have items derived from real findings")
-        # Should NOT be the old hardcoded "Inspect Weld B-12"
-        if len(items) > 0:
-            first_task = items[0].get("task", "")
-            self.assertNotEqual(first_task, "Inspect Weld B-12",
-                "XLSX items should be derived from real findings, not hardcoded")
+        self.assertGreaterEqual(len(items), 2, "XLSX should have multiple items derived from real findings and evidence")
+
+        # Confirm items have valid priority values
+        for item in items:
+            self.assertIn(item.get("priority"), ["LOW", "MEDIUM", "HIGH", "CRITICAL"])
+            self.assertGreater(len(item.get("task", "")), 5)
+
+        # Confirm XLSX on disk has real content and rows
+        import os
+        from openpyxl import load_workbook
+        xlsx_file = state.draft_deliverables.get("action_tracker_xlsx", "")
+        self.assertTrue(xlsx_file, "Action tracker deliverable path must be set")
+        full_xlsx_path = os.path.join("backend", "storage", "outputs", xlsx_file)
+        self.assertTrue(os.path.exists(full_xlsx_path))
+        wb = load_workbook(full_xlsx_path)
+        ws = wb.active
+        self.assertGreaterEqual(ws.max_row, 3, "XLSX should have header row plus multiple data rows")
 
     def test_docx_content_quality(self):
-        """Regression test: DOCX content should contain synthesized analysis, not just raw data."""
+        """Content-quality test: DOCX must contain synthesized analysis and citations, not just a title."""
         import os
         orchestrator = AgentOrchestrator()
         state = orchestrator.create_task(query="Inspect turbine report", input_files=["turbine.pdf"])
         orchestrator.run_all_steps(state)
 
-        # Verify the DOCX file was created and contains real content
+        # Verify the DOCX file was created
         docx_path = state.draft_deliverables.get("approval_note_docx", "")
         self.assertTrue(docx_path, "DOCX deliverable path should be set")
 
         full_path = os.path.join("backend", "storage", "outputs", docx_path)
         self.assertTrue(os.path.exists(full_path), f"DOCX file should exist at {full_path}")
 
-        # Open and verify content
+        # Open and verify actual content quality
         from docx import Document
         doc = Document(full_path)
         full_text = "\n".join(p.text for p in doc.paragraphs)
-        self.assertGreater(len(full_text), 100, "DOCX should have substantial content")
-        self.assertIn("Approval Note", full_text, "DOCX should have the title")
+        headings = [p.text for p in doc.paragraphs if p.style.name.startswith("Heading")]
+
+        self.assertIn("Executive Summary", headings, "DOCX must contain 'Executive Summary' heading")
+        self.assertIn("Detailed Findings", headings, "DOCX must contain 'Detailed Findings' heading")
+        self.assertIn("SOP Evidence & Citations", headings, "DOCX must contain 'SOP Evidence & Citations' heading")
+        self.assertIn(f"Task Reference: {state.task_id}", full_text, "DOCX must contain explicit task reference ID")
+
+        # Verify that state.findings["synthesized_analysis"] is actually consumed in the DOCX text
+        synthesized = state.findings.get("synthesized_analysis", "")
+        self.assertTrue(synthesized, "Synthesized analysis must be present in state.findings")
+        # Check that key words or sentences from synthesized analysis appear in docx full_text
+        first_meaningful_line = next((l.strip().lstrip("#*-0123456789. ") for l in synthesized.splitlines() if len(l.strip()) > 20), "")
+        if first_meaningful_line:
+            clean_check = first_meaningful_line.replace("**", "")[:40]
+            self.assertIn(clean_check, full_text, "DOCX Executive Summary must include content from synthesized_analysis")
+
+        # Verify that SOP evidence citations from state.retrieved_evidence appear in the DOCX
+        self.assertGreater(len(state.retrieved_evidence), 0, "State should have retrieved SOP evidence")
+        first_ev = state.retrieved_evidence[0]
+        self.assertIn(first_ev.source_doc, full_text, "DOCX must include the SOP citation document name")
+
+    def test_conversational_input_hi_produces_clean_greeting(self):
+        """Conversational guard test: 'hi' must produce a clean greeting, NOT an invented risk template."""
+        orchestrator = AgentOrchestrator()
+        state = orchestrator.create_task(query="hi")
+        orchestrator.run_all_steps(state)
+
+        # Must be classified as GENERAL_REASONING
+        self.assertEqual(state.category, TaskCategory.GENERAL_REASONING)
+
+        # Model router call must have task_type='general'
+        model_calls = [tc for tc in state.tool_calls if tc.tool_name == "model_router_tool"]
+        self.assertEqual(len(model_calls), 1)
+        self.assertEqual(model_calls[0].input_params.get("task_type"), "general")
+
+        # Response must be a clean greeting and intro to KAVACH AI
+        response = state.text_response or state.findings.get("synthesized_analysis", "")
+        self.assertTrue(response, "Agent must return a text response for 'hi'")
+        self.assertIn("KAVACH AI", response, "Greeting should introduce KAVACH AI")
+        self.assertTrue(any(w in response.lower() for w in ["hello", "assist", "welcome", "sovereign"]),
+            "Response should be a welcoming greeting")
+
+        # Response must NOT contain placeholder brackets or fake risk template headers
+        self.assertNotIn("[insert specific", response.lower())
+        self.assertNotIn("[insert areas", response.lower())
+        self.assertNotIn("sample risk assessment", response.lower())
+
+    def test_rag_search_fallback_flagged_honestly(self):
+        """Honest fallback test: when RAG fails/falls back, it is explicitly tagged."""
+        from backend.agent.tools_registry import RAGSearchTool
+        tool = RAGSearchTool()
+
+        # Call with invalid query to trigger store search or exception fallback
+        res = tool.run(query="___non_existent_trigger___")
+        self.assertIn("results", res)
+
+        # If fallback was activated, ensure fallback flags are set honestly
+        if res.get("fallback_data"):
+            self.assertTrue(res.get("FALLBACK_DATA"), "FALLBACK_DATA flag must be True")
+            self.assertTrue(res.get("is_fallback"), "is_fallback flag must be True")
+            first_result = res["results"][0]
+            self.assertTrue(first_result.get("fallback") or first_result.get("is_fallback"),
+                "Individual fallback items must be tagged with fallback=True")
+
 
     def test_streaming_agent_endpoint(self):
         """Test FastAPI SSE streaming route returns real-time data events."""

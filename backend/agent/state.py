@@ -38,6 +38,7 @@ class EvidenceItem(BaseModel):
     snippet: str
     confidence_score: float = 1.0
     image_url: Optional[str] = None
+    is_fallback: bool = False
 
 
 class PlanStep(BaseModel):

@@ -24,6 +24,7 @@ export interface EvidenceItem {
   snippet: string;
   confidence_score: number;
   image_url?: string;
+  is_fallback?: boolean;
 }
 
 export interface PlanStep {

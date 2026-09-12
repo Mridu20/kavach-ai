@@ -14,8 +14,8 @@ class TaskClassifier:
         query_lower = query.lower()
         file_exts = [f.split(".")[-1].lower() for f in input_files if "." in f]
 
-        if any(ext in ["pdf", "png", "jpg", "jpeg", "tiff"] for ext in file_exts) or any(
-            kw in query_lower for kw in ["inspection", "scanned", "report", "audit", "defect", "weld"]
+        if any(ext in ["pdf", "png", "jpg", "jpeg", "tiff", "txt", "log"] for ext in file_exts) or any(
+            kw in query_lower for kw in ["inspect", "scanned", "report", "audit", "defect", "weld", "ndt", "vessel", "thickness"]
         ):
             return TaskCategory.DOCUMENT_INSPECTION
 
@@ -122,12 +122,18 @@ class AgentPlanner:
                 ),
                 PlanStep(
                     step_id=2,
+                    title="Synthesize Findings & Analysis",
+                    description="Synthesize context and technical findings into official assessment.",
+                    assigned_tool="model_router_tool",
+                ),
+                PlanStep(
+                    step_id=3,
                     title="Generate Approval Note DOCX",
                     description="Produce formatted Word approval note.",
                     assigned_tool="generate_docx_tool",
                 ),
                 PlanStep(
-                    step_id=3,
+                    step_id=4,
                     title="Generate Action Tracker XLSX",
                     description="Produce formatted Excel action tracker.",
                     assigned_tool="generate_xlsx_tool",

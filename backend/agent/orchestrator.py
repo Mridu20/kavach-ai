@@ -216,28 +216,95 @@ class AgentOrchestrator:
             }
         elif tool_name == "generate_xlsx_tool":
             items = []
+            import re
+
+            # 1. Action items from structured inspection findings
             structured = state.findings.get("structured_findings", [])
             if structured and isinstance(structured, list):
                 for f in structured:
                     if isinstance(f, dict):
+                        desc = f.get("description") or f.get("recommended_action") or f.get("defect") or "Inspection action required"
+                        comp = f.get("component") or f.get("location") or ""
+                        task_title = f"[{comp}] {desc}" if comp else desc
                         items.append({
-                            "task": f.get("description", "Inspection action required"),
-                            "priority": f.get("severity", "MEDIUM"),
+                            "task": task_title,
+                            "priority": str(f.get("severity", "MEDIUM")).upper(),
                             "status": "OPEN",
                         })
-            if not items:
-                for key, value in state.findings.items():
-                    if key in ("structured_findings", "synthesized_analysis", "model_used", "model_error"):
+
+            # 2. Derive actionable recommendations from synthesized analysis
+            synth = state.findings.get("synthesized_analysis", "")
+            if synth:
+                lines = synth.splitlines()
+                capture_actions = False
+                for line in lines:
+                    line_clean = line.strip()
+                    if any(header in line_clean.lower() for header in ["action", "recommendation", "directive", "action items"]):
+                        capture_actions = True
                         continue
+                    if capture_actions and (line_clean.startswith("- ") or line_clean.startswith("* ") or re.match(r"^\d+\.", line_clean)):
+                        task_text = re.sub(r"^[-*\d\.]+\s*", "", line_clean).replace("**", "").strip()
+                        if len(task_text) > 8:
+                            prio = "CRITICAL" if any(w in task_text.lower() for w in ["immediate", "emergency", "derat", "shutdown", "critical"]) else "HIGH" if any(w in task_text.lower() for w in ["mandate", "urgent", "crack", "prior"]) else "MEDIUM"
+                            items.append({
+                                "task": task_text[:140],
+                                "priority": prio,
+                                "status": "OPEN",
+                            })
+                    elif capture_actions and line_clean.startswith("#"):
+                        capture_actions = False
+
+            # 3. Derive compliance verification items from retrieved SOP evidence
+            if state.retrieved_evidence:
+                for ev in state.retrieved_evidence:
+                    snippet_lead = ev.snippet.split(".")[0] if "." in ev.snippet else ev.snippet[:80]
+                    page_str = f"p.{ev.page_num}" if ev.page_num else ""
+                    doc_ref = f"{ev.source_doc} {page_str}".strip()
+                    prio = "CRITICAL" if any(w in ev.snippet.lower() for w in ["shutdown", "mandate", "immediate", "fail"]) else "HIGH"
                     items.append({
-                        "task": f"{key.replace('_', ' ').title()}: {str(value)[:100]}",
-                        "priority": "MEDIUM",
+                        "task": f"Compliance Audit: Verify requirements per {doc_ref} ({snippet_lead.strip()})",
+                        "priority": prio,
                         "status": "OPEN",
                     })
+
+            # 4. Fallback if still empty: derive from findings keys
             if not items:
-                items = [{"task": state.user_query[:100], "priority": "MEDIUM", "status": "OPEN"}]
+                for key, value in state.findings.items():
+                    if key in ("structured_findings", "synthesized_analysis", "model_used", "model_error", "synthesis_engine", "rag_fallback_used"):
+                        continue
+                    if value:
+                        items.append({
+                            "task": f"{key.replace('_', ' ').title()}: {str(value)[:100]}",
+                            "priority": "MEDIUM",
+                            "status": "OPEN",
+                        })
+
+            # 5. Ultimate fallback
+            if not items:
+                items = [{"task": f"Complete engineering review for: {state.user_query[:100]}", "priority": "MEDIUM", "status": "OPEN"}]
+
             return {"items": items, "output_path": f"{state.task_id}_Action_Tracker.xlsx"}
+
         elif tool_name == "model_router_tool":
+            query_lower = state.user_query.lower().strip()
+
+            # Guard for trivial/conversational greeting queries
+            is_conversational = (
+                state.category == TaskCategory.GENERAL_REASONING
+                and (
+                    query_lower in ["hi", "hello", "hey", "help", "who are you", "what can you do", "status", "greetings", "good morning", "good afternoon"]
+                    or (len(query_lower.split()) <= 2 and not state.findings and not state.retrieved_evidence and not state.input_files)
+                )
+            )
+
+            if is_conversational:
+                return {
+                    "task_type": "general",
+                    "prompt": state.user_query,
+                    "is_conversational": True,
+                }
+
+            # Grounded prompt construction
             prompt_parts = [f"User Query: {state.user_query}"]
             if state.findings.get("ocr_extracted_text"):
                 prompt_parts.append(f"\n--- OCR Extracted Text ---\n{state.findings['ocr_extracted_text'][:2000]}")
@@ -258,18 +325,32 @@ class AgentOrchestrator:
                 except Exception:
                     sf_text = str(state.findings["structured_findings"])[:1000]
                 prompt_parts.append(f"\n--- Structured Findings ---\n{sf_text}")
-            prompt_parts.append(
-                "\nBased on the above inspection data, SOP evidence, and execution output, "
-                "synthesize a comprehensive risk assessment, step-by-step calculations, and approval recommendation. "
-                "Include specific findings, severity levels, and recommended actions."
-            )
 
-            # Auto-route specialized local model
             task_type = "reasoning"
             if state.category == TaskCategory.SANDBOX_CODE_EXECUTION:
                 task_type = "coding"
-            elif state.category == TaskCategory.DOCUMENT_INSPECTION and any(k in query_lower for k in ["pid", "drawing", "diagram", "image"]):
-                task_type = "vision"
+                prompt_parts.append(
+                    "\nAnalyze the sandbox code execution output and telemetry data above. "
+                    "Report any sensor anomalies, threshold exceedances, or calculation verdicts concisely."
+                )
+            elif state.category == TaskCategory.DOCUMENT_INSPECTION:
+                task_type = "vision" if any(k in query_lower for k in ["pid", "drawing", "diagram", "image"]) else "reasoning"
+                prompt_parts.append(
+                    "\nYou are synthesizing a plant inspection finding from the OCR/vision/RAG evidence above into a concise, professional engineering summary. "
+                    "Ground your findings strictly in the provided evidence. Do not invent defects or standard clauses not present in the evidence. "
+                    "Include specific findings, severity levels, statutory compliance verdicts, and actionable recommendations."
+                )
+            elif state.category == TaskCategory.SOP_RAG_QUERY:
+                task_type = "reasoning"
+                prompt_parts.append(
+                    "\nSynthesize a clear, citation-backed response based strictly on the retrieved SOP clauses above. "
+                    "Explicitly reference the document name and page number for each requirement. Do not speculate."
+                )
+            else:
+                task_type = "general"
+                prompt_parts.append(
+                    "\nProvide a concise, professional engineering answer to the user query based on sovereign plant operating principles."
+                )
 
             return {"task_type": task_type, "prompt": "\n".join(prompt_parts)}
         return {}
@@ -289,6 +370,9 @@ class AgentOrchestrator:
             if "structured_findings" in output and "structured_findings" not in state.findings:
                 state.findings["structured_findings"] = output["structured_findings"]
         elif tool_name == "rag_search_tool":
+            is_fallback = output.get("fallback_data", False) or output.get("FALLBACK_DATA", False)
+            if is_fallback:
+                state.findings["rag_fallback_used"] = True
             results = output.get("results", [])
             for res in results:
                 state.retrieved_evidence.append(
@@ -297,16 +381,20 @@ class AgentOrchestrator:
                         page_num=res.get("page"),
                         snippet=res.get("snippet", ""),
                         confidence_score=res.get("score", 1.0),
+                        is_fallback=is_fallback or res.get("fallback", False) or res.get("source") == "DEMO_FALLBACK",
                     )
                 )
         elif tool_name == "model_router_tool":
-            response_text = output.get("response", "")
+            response_text = output.get("response") or output.get("synthesized_analysis") or ""
             if response_text:
                 state.findings["synthesized_analysis"] = response_text
                 state.text_response = response_text
             state.findings["model_used"] = output.get("selected_model", "unknown")
+            if output.get("engine"):
+                state.findings["synthesis_engine"] = output["engine"]
             if output.get("error"):
                 state.findings["model_error"] = output["error"]
+
 
             query_lower = state.user_query.lower()
 

@@ -7,11 +7,9 @@ import {
   BadgeCheck,
   CheckCircle2,
   XCircle,
-  Zap,
   Eye,
   EyeOff,
   X,
-  Server,
 } from "lucide-react";
 import type { UserProfile, PasswordStrength } from "../types/auth";
 
@@ -176,10 +174,10 @@ export const AuthView: React.FC<AuthViewProps> = ({ onSuccess, onClose, isModal 
           </div>
           <div>
             <div style={{ fontWeight: 700, fontSize: "1rem", letterSpacing: "-0.01em" }}>
-              KAVACH AI SOVEREIGN
+              KAVACH AI
             </div>
-            <div style={{ fontSize: "0.725rem", color: "#94a3b8", display: "flex", alignItems: "center", gap: "0.3rem" }}>
-              <Server size={12} color="var(--green-600)" /> Air-Gapped On-Premise Auth
+              <div style={{ fontSize: "0.725rem", color: "#94a3b8", display: "flex", alignItems: "center", gap: "0.3rem" }}>
+                Sign in
             </div>
           </div>
         </div>
@@ -313,7 +311,7 @@ export const AuthView: React.FC<AuthViewProps> = ({ onSuccess, onClose, isModal 
             </div>
 
             <button type="submit" className="btn btn--primary" style={{ width: "100%", padding: "0.65rem", marginTop: "0.5rem" }}>
-              Sign In to Sovereign Portal
+              Sign In
             </button>
           </form>
         )}
@@ -440,7 +438,7 @@ export const AuthView: React.FC<AuthViewProps> = ({ onSuccess, onClose, isModal 
             </div>
 
             <button type="submit" className="btn btn--primary" style={{ width: "100%", padding: "0.65rem", marginTop: "0.4rem" }}>
-              Complete Air-Gapped Registration
+              Create Account
             </button>
           </form>
         )}
@@ -448,8 +446,7 @@ export const AuthView: React.FC<AuthViewProps> = ({ onSuccess, onClose, isModal 
         {/* Hackathon Quick-Demo Presets */}
         <div style={{ marginTop: "1.25rem", borderTop: "1px solid var(--border-dim)", paddingTop: "1rem" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.5rem" }}>
-            <Zap size={14} color="var(--amber-500)" />
-            <span>Hackathon Presentation 1-Click Login Presets:</span>
+            <span>Quick demo login:</span>
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
             {sampleUsers.map((user) => (

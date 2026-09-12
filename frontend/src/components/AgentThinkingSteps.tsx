@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from "react";
 import {
-  Brain,
   ChevronDown,
   ChevronUp,
   CheckCircle2,
@@ -15,7 +14,6 @@ import {
   FileCheck,
   Zap,
   ChevronRight,
-  ShieldCheck,
 } from "lucide-react";
 import type { AgentState, PlanStep, ToolCallRecord, TraceEvent } from "../types/agent";
 
@@ -65,8 +63,8 @@ export const AgentThinkingSteps: React.FC<Props> = ({
   const steps: PlanStep[] = state?.plan || [
     {
       step_id: 1,
-      title: "Classifying Task & Initializing Workflow",
-      description: "Analyzing prompt intent and routing to local specialized GPU models.",
+      title: "Classifying task",
+      description: "Analyzing prompt intent and routing to local models.",
       assigned_tool: "task_classifier",
       status: "IN_PROGRESS",
     },
@@ -130,19 +128,17 @@ export const AgentThinkingSteps: React.FC<Props> = ({
       style={{
         background: "#ffffff",
         border: "1px solid var(--border-dim)",
-        borderRadius: "10px",
+        borderRadius: "8px",
         overflow: "hidden",
-        boxShadow: "0 4px 12px rgba(0, 0, 0, 0.04)",
-        marginBottom: "1.25rem",
-        transition: "all 0.2s ease",
+        marginBottom: "0.5rem",
       }}
     >
       {/* ── Accordion Header ── */}
       <div
         onClick={() => setIsExpanded(!isExpanded)}
         style={{
-          padding: "1rem 1.25rem",
-          background: isRunning ? "linear-gradient(90deg, #f0f9ff 0%, #ffffff 100%)" : "#f8fafc",
+          padding: "0.75rem 1rem",
+          background: "#f8fafc",
           borderBottom: isExpanded ? "1px solid var(--border-dim)" : "none",
           display: "flex",
           alignItems: "center",
@@ -151,81 +147,52 @@ export const AgentThinkingSteps: React.FC<Props> = ({
           userSelect: "none",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-          <div
-            style={{
-              width: "36px",
-              height: "36px",
-              borderRadius: "8px",
-              background: isRunning ? "#e0f2fe" : "#f1f5f9",
-              border: `1px solid ${isRunning ? "#bae6fd" : "#cbd5e1"}`,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            {isRunning ? (
-              <Brain size={18} color="var(--brand-blue)" style={{ animation: "pulse 1.5s infinite" }} />
-            ) : (
-              <Brain size={18} color="var(--brand-navy)" />
-            )}
-          </div>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
+          {isRunning ? (
+            <Loader2 size={16} color="var(--brand-blue)" style={{ animation: "spin 1.2s linear infinite" }} />
+          ) : (
+            <CheckCircle2 size={16} color="var(--green-600)" />
+          )}
 
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-              <span style={{ fontWeight: 700, fontSize: "0.95rem", color: "var(--brand-navy)" }}>
+              <span style={{ fontWeight: 600, fontSize: "0.85rem", color: "var(--brand-navy)" }}>
                 {isRunning
-                  ? `Thinking... (${completedSteps}/${totalSteps} Steps Complete)`
-                  : `Agent Execution & Reasoning Trace (${completedSteps}/${totalSteps} Steps)`}
+                  ? `Processing • ${completedSteps}/${totalSteps}`
+                  : `Execution trace • ${completedSteps}/${totalSteps}`}
               </span>
               {isRunning && (
                 <span
                   style={{
                     display: "inline-flex",
                     alignItems: "center",
-                    gap: "0.3rem",
-                    padding: "0.15rem 0.5rem",
-                    borderRadius: "12px",
-                    background: "#e0f2fe",
-                    color: "var(--brand-blue)",
-                    fontSize: "0.725rem",
-                    fontWeight: 600,
+                    gap: "0.25rem",
+                    padding: "0.1rem 0.4rem",
+                    borderRadius: "4px",
+                    background: "#f1f5f9",
+                    border: "1px solid var(--border-dim)",
+                    color: "var(--text-muted)",
+                    fontSize: "0.7rem",
+                    fontWeight: 500,
+                    fontFamily: "var(--font-mono)",
                   }}
                 >
-                  <Clock size={11} />
+                  <Clock size={10} />
                   {elapsedSeconds}s
                 </span>
               )}
             </div>
-            <div style={{ fontSize: "0.775rem", color: "var(--text-muted)", marginTop: "0.15rem" }}>
+            <div style={{ fontSize: "0.725rem", color: "var(--text-muted)", marginTop: "0.1rem" }}>
               {isRunning
                 ? inProgressStep
-                  ? `Active Step: ${inProgressStep.title}`
-                  : "Initializing sovereign execution plan..."
-                : state?.verification?.verified
-                ? "All execution steps verified with zero external cloud calls."
-                : "Execution plan completed."}
+                  ? inProgressStep.title
+                  : "Initializing..."
+                : "Complete."}
             </div>
           </div>
         </div>
 
-        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-          {/* Progress Pill */}
-          <div
-            style={{
-              padding: "0.25rem 0.65rem",
-              background: completedSteps === totalSteps ? "#dcfce7" : "#f1f5f9",
-              border: `1px solid ${completedSteps === totalSteps ? "#bbf7d0" : "#e2e8f0"}`,
-              borderRadius: "6px",
-              fontSize: "0.775rem",
-              fontWeight: 600,
-              color: completedSteps === totalSteps ? "#15803d" : "var(--text-primary)",
-            }}
-          >
-            {percentComplete}% Complete
-          </div>
-
-          {/* Toggle Chevron */}
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
           <button
             style={{
               background: "transparent",
@@ -236,33 +203,30 @@ export const AgentThinkingSteps: React.FC<Props> = ({
               color: "var(--text-muted)",
             }}
           >
-            {isExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+            {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
           </button>
         </div>
       </div>
 
       {/* ── Accordion Content ── */}
       {isExpanded && (
-        <div style={{ padding: "1.25rem" }}>
-          {/* Progress Bar */}
+        <div style={{ padding: "1rem" }}>
+          {/* Progress Bar — flat, no gradient */}
           <div
             style={{
               width: "100%",
-              height: "6px",
+              height: "4px",
               background: "#e2e8f0",
-              borderRadius: "3px",
+              borderRadius: "2px",
               overflow: "hidden",
-              marginBottom: "1.25rem",
+              marginBottom: "1rem",
             }}
           >
             <div
               style={{
                 width: `${percentComplete}%`,
                 height: "100%",
-                background:
-                  percentComplete === 100
-                    ? "linear-gradient(90deg, #10b981 0%, #059669 100%)"
-                    : "linear-gradient(90deg, #0284c7 0%, #3b82f6 100%)",
+                background: percentComplete === 100 ? "var(--green-600)" : "var(--brand-blue)",
                 transition: "width 0.3s ease",
               }}
             />
@@ -275,50 +239,50 @@ export const AgentThinkingSteps: React.FC<Props> = ({
               alignItems: "center",
               gap: "0.5rem",
               borderBottom: "1px solid var(--border-dim)",
-              paddingBottom: "0.65rem",
-              marginBottom: "1.25rem",
+              paddingBottom: "0.5rem",
+              marginBottom: "1rem",
             }}
           >
             <button
               onClick={() => setActiveTab("steps")}
               style={{
-                padding: "0.4rem 0.85rem",
-                borderRadius: "6px",
-                fontSize: "0.8rem",
+                padding: "0.35rem 0.75rem",
+                borderRadius: "5px",
+                fontSize: "0.775rem",
                 fontWeight: 600,
                 cursor: "pointer",
                 border: "none",
-                background: activeTab === "steps" ? "#f0f9ff" : "transparent",
-                color: activeTab === "steps" ? "var(--brand-blue)" : "var(--text-muted)",
+                background: activeTab === "steps" ? "var(--bg-raised)" : "transparent",
+                color: activeTab === "steps" ? "var(--brand-navy)" : "var(--text-muted)",
               }}
             >
-              Step-by-Step Reasoning
+              Steps
             </button>
 
             <button
               onClick={() => setActiveTab("trace")}
               style={{
-                padding: "0.4rem 0.85rem",
-                borderRadius: "6px",
-                fontSize: "0.8rem",
+                padding: "0.35rem 0.75rem",
+                borderRadius: "5px",
+                fontSize: "0.775rem",
                 fontWeight: 600,
                 cursor: "pointer",
                 border: "none",
                 display: "flex",
                 alignItems: "center",
-                gap: "0.35rem",
-                background: activeTab === "trace" ? "#f0f9ff" : "transparent",
-                color: activeTab === "trace" ? "var(--brand-blue)" : "var(--text-muted)",
+                gap: "0.3rem",
+                background: activeTab === "trace" ? "var(--bg-raised)" : "transparent",
+                color: activeTab === "trace" ? "var(--brand-navy)" : "var(--text-muted)",
               }}
             >
-              <Terminal size={13} />
-              System Trace Logs ({state?.trace?.events?.length || 0})
+              <Terminal size={12} />
+              Trace ({state?.trace?.events?.length || 0})
             </button>
           </div>
 
-          {/* Tab 1: Step-by-Step Reasoning Timeline */}
+          {/* Tab 1: Step-by-Step Timeline */}
           {activeTab === "steps" && (
-            <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.85rem" }}>
               {steps.map((step, idx) => {
                 const record = getToolRecord(step.step_id);
                 const isDetailsOpen = !!expandedStepIds[step.step_id];
@@ -328,7 +292,7 @@ export const AgentThinkingSteps: React.FC<Props> = ({
                     key={step.step_id}
                     style={{
                       display: "flex",
-                      gap: "0.85rem",
+                      gap: "0.75rem",
                       position: "relative",
                     }}
                   >
@@ -337,10 +301,10 @@ export const AgentThinkingSteps: React.FC<Props> = ({
                       <div
                         style={{
                           position: "absolute",
-                          left: "13px",
-                          top: "28px",
-                          bottom: "-14px",
-                          width: "2px",
+                          left: "11px",
+                          top: "24px",
+                          bottom: "-12px",
+                          width: "1px",
                           background: step.status === "COMPLETED" ? "#cbd5e1" : "#e2e8f0",
                         }}
                       />
@@ -349,34 +313,21 @@ export const AgentThinkingSteps: React.FC<Props> = ({
                     {/* Step Icon */}
                     <div style={{ flexShrink: 0, marginTop: "2px", zIndex: 1 }}>
                       {step.status === "COMPLETED" ? (
-                        <CheckCircle2 size={24} color="#16a34a" />
+                        <CheckCircle2 size={20} color="#16a34a" />
                       ) : step.status === "IN_PROGRESS" ? (
-                        <div
-                          style={{
-                            width: "24px",
-                            height: "24px",
-                            borderRadius: "50%",
-                            background: "#e0f2fe",
-                            border: "2px solid #0284c7",
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                          }}
-                        >
-                          <Loader2
-                            size={14}
-                            color="#0284c7"
-                            style={{ animation: "spin 1.2s linear infinite" }}
-                          />
-                        </div>
+                        <Loader2
+                          size={20}
+                          color="#0284c7"
+                          style={{ animation: "spin 1.2s linear infinite" }}
+                        />
                       ) : step.status === "FAILED" ? (
-                        <AlertCircle size={24} color="#dc2626" />
+                        <AlertCircle size={20} color="#dc2626" />
                       ) : (
-                        <Circle size={24} color="#cbd5e1" />
+                        <Circle size={20} color="#cbd5e1" />
                       )}
                     </div>
 
-                    {/* Step Content Card */}
+                    {/* Step Content */}
                     <div
                       style={{
                         flex: 1,
@@ -388,8 +339,8 @@ export const AgentThinkingSteps: React.FC<Props> = ({
                             : step.status === "COMPLETED"
                             ? "var(--border-dim)"
                             : "#f1f5f9",
-                        borderRadius: "8px",
-                        padding: "0.85rem 1rem",
+                        borderRadius: "6px",
+                        padding: "0.7rem 0.85rem",
                       }}
                     >
                       <div
@@ -397,24 +348,24 @@ export const AgentThinkingSteps: React.FC<Props> = ({
                           display: "flex",
                           alignItems: "center",
                           justifyContent: "space-between",
-                          gap: "0.5rem",
+                          gap: "0.4rem",
                           flexWrap: "wrap",
                         }}
                       >
-                        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
                           <span
                             style={{
-                              fontSize: "0.75rem",
+                              fontSize: "0.7rem",
                               fontWeight: 700,
                               color: "var(--text-dim)",
                             }}
                           >
-                            STEP {step.step_id}
+                            {step.step_id}
                           </span>
                           <h4
                             style={{
-                              fontSize: "0.875rem",
-                              fontWeight: 700,
+                              fontSize: "0.825rem",
+                              fontWeight: 600,
                               color:
                                 step.status === "PENDING"
                                   ? "var(--text-muted)"
@@ -425,18 +376,18 @@ export const AgentThinkingSteps: React.FC<Props> = ({
                           </h4>
                         </div>
 
-                        <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}>
                           {/* Tool Tag */}
                           <span
                             style={{
                               display: "inline-flex",
                               alignItems: "center",
-                              gap: "0.3rem",
-                              padding: "0.15rem 0.5rem",
+                              gap: "0.25rem",
+                              padding: "0.1rem 0.4rem",
                               background: "#ffffff",
                               border: "1px solid var(--border-base)",
                               borderRadius: "4px",
-                              fontSize: "0.725rem",
+                              fontSize: "0.675rem",
                               fontFamily: "var(--font-mono)",
                               color: "var(--text-primary)",
                             }}
@@ -445,11 +396,11 @@ export const AgentThinkingSteps: React.FC<Props> = ({
                             {step.assigned_tool}
                           </span>
 
-                          {/* Execution Time Badge */}
+                          {/* Execution Time */}
                           {record?.execution_time_ms ? (
                             <span
                               style={{
-                                fontSize: "0.725rem",
+                                fontSize: "0.675rem",
                                 color: "var(--text-muted)",
                                 fontFamily: "var(--font-mono)",
                               }}
@@ -458,7 +409,7 @@ export const AgentThinkingSteps: React.FC<Props> = ({
                             </span>
                           ) : null}
 
-                          {/* Toggle Parameter Details Button */}
+                          {/* Toggle Details */}
                           {(record || step.result || step.error) && (
                             <button
                               onClick={() => toggleStepDetails(step.step_id)}
@@ -466,18 +417,18 @@ export const AgentThinkingSteps: React.FC<Props> = ({
                                 background: "transparent",
                                 border: "none",
                                 cursor: "pointer",
-                                fontSize: "0.725rem",
+                                fontSize: "0.675rem",
                                 color: "var(--brand-blue)",
                                 fontWeight: 600,
                                 display: "flex",
                                 alignItems: "center",
-                                gap: "0.2rem",
-                                marginLeft: "0.25rem",
+                                gap: "0.15rem",
+                                marginLeft: "0.15rem",
                               }}
                             >
-                              {isDetailsOpen ? "Hide Details" : "Inspect Tool Output"}
+                              {isDetailsOpen ? "Hide" : "Details"}
                               <ChevronRight
-                                size={12}
+                                size={11}
                                 style={{
                                   transform: isDetailsOpen ? "rotate(90deg)" : "none",
                                   transition: "transform 0.15s ease",
@@ -490,47 +441,47 @@ export const AgentThinkingSteps: React.FC<Props> = ({
 
                       <p
                         style={{
-                          fontSize: "0.8rem",
+                          fontSize: "0.75rem",
                           color: "var(--text-muted)",
-                          marginTop: "0.25rem",
+                          marginTop: "0.2rem",
                         }}
                       >
                         {step.description}
                       </p>
 
-                      {/* Error Message Display */}
+                      {/* Error Message */}
                       {step.error && (
                         <div
                           style={{
-                            marginTop: "0.5rem",
-                            padding: "0.5rem 0.75rem",
+                            marginTop: "0.4rem",
+                            padding: "0.4rem 0.65rem",
                             background: "#fef2f2",
                             border: "1px solid #fecaca",
-                            borderRadius: "6px",
+                            borderRadius: "5px",
                             color: "#b91c1c",
-                            fontSize: "0.775rem",
+                            fontSize: "0.725rem",
                           }}
                         >
                           <strong>Error:</strong> {step.error}
                         </div>
                       )}
 
-                      {/* Expanded Tool Input/Output Inspector */}
+                      {/* Expanded Tool Output */}
                       {isDetailsOpen && record && (
                         <div
                           style={{
-                            marginTop: "0.65rem",
-                            padding: "0.75rem",
+                            marginTop: "0.5rem",
+                            padding: "0.65rem",
                             background: "#0f172a",
-                            borderRadius: "6px",
+                            borderRadius: "5px",
                             color: "#e2e8f0",
                             fontFamily: "var(--font-mono)",
-                            fontSize: "0.75rem",
+                            fontSize: "0.7rem",
                             overflowX: "auto",
                           }}
                         >
-                          <div style={{ color: "#38bdf8", fontWeight: 600, marginBottom: "0.25rem" }}>
-                            // Tool Parameters:
+                          <div style={{ color: "#38bdf8", fontWeight: 600, marginBottom: "0.2rem" }}>
+                            // Parameters:
                           </div>
                           <pre style={{ margin: 0, whiteSpace: "pre-wrap" }}>
                             {JSON.stringify(record.input_params, null, 2)}
@@ -542,11 +493,11 @@ export const AgentThinkingSteps: React.FC<Props> = ({
                                 style={{
                                   color: "#4ade80",
                                   fontWeight: 600,
-                                  marginTop: "0.65rem",
-                                  marginBottom: "0.25rem",
+                                  marginTop: "0.5rem",
+                                  marginBottom: "0.2rem",
                                 }}
                               >
-                                // Execution Output:
+                                // Output:
                               </div>
                               <pre style={{ margin: 0, whiteSpace: "pre-wrap" }}>
                                 {typeof record.output === "object"
@@ -564,22 +515,22 @@ export const AgentThinkingSteps: React.FC<Props> = ({
             </div>
           )}
 
-          {/* Tab 2: System Trace Logs (Antigravity IDE format) */}
+          {/* Tab 2: System Trace Logs */}
           {activeTab === "trace" && (
             <div
               style={{
                 background: "#090d16",
                 border: "1px solid #1e293b",
-                borderRadius: "8px",
-                padding: "1rem",
+                borderRadius: "6px",
+                padding: "0.75rem",
                 fontFamily: "var(--font-mono)",
-                fontSize: "0.75rem",
-                maxHeight: "340px",
+                fontSize: "0.7rem",
+                maxHeight: "300px",
                 overflowY: "auto",
               }}
             >
               {state?.trace?.events && state.trace.events.length > 0 ? (
-                <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem" }}>
                   {state.trace.events.map((evt: TraceEvent) => {
                     const colors = getEventBadgeColor(evt.event_type);
                     return (
@@ -588,25 +539,25 @@ export const AgentThinkingSteps: React.FC<Props> = ({
                         style={{
                           display: "flex",
                           alignItems: "flex-start",
-                          gap: "0.75rem",
-                          padding: "0.4rem 0.5rem",
+                          gap: "0.6rem",
+                          padding: "0.3rem 0.4rem",
                           borderBottom: "1px solid #1e293b",
                         }}
                       >
-                        <span style={{ color: "#64748b", flexShrink: 0, width: "70px" }}>
+                        <span style={{ color: "#64748b", flexShrink: 0, width: "60px" }}>
                           {evt.timestamp ? evt.timestamp.split("T")[1]?.slice(0, 8) : "--:--:--"}
                         </span>
 
                         <span
                           style={{
-                            padding: "0.1rem 0.4rem",
-                            borderRadius: "4px",
+                            padding: "0.05rem 0.35rem",
+                            borderRadius: "3px",
                             background: colors.bg,
                             color: colors.text,
                             fontWeight: 700,
-                            fontSize: "0.675rem",
+                            fontSize: "0.625rem",
                             flexShrink: 0,
-                            minWidth: "100px",
+                            minWidth: "85px",
                             textAlign: "center",
                           }}
                         >
@@ -619,7 +570,7 @@ export const AgentThinkingSteps: React.FC<Props> = ({
                   })}
                 </div>
               ) : (
-                <div style={{ color: "#64748b", textAlign: "center", padding: "1.5rem" }}>
+                <div style={{ color: "#64748b", textAlign: "center", padding: "1rem" }}>
                   No trace events recorded yet.
                 </div>
               )}

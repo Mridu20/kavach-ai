@@ -98,7 +98,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 marginTop: "1px",
               }}
             >
-              Your data. Your hardware. Your AI.
+              On-premise AI assistant
             </span>
           </div>
         </div>
