@@ -32,25 +32,31 @@ class TestRAGDeactivationAndIsolation(unittest.TestCase):
         # Should start empty without seeding SOP_Industrial_Safety_v3.pdf or Maintenance_Manual_Turbine_2025.pdf
         self.assertEqual(store.count(), 0)
 
-    def test_rag_tool_not_in_active_agent_registry(self):
-        """Active agent tool registry does NOT expose rag_search_tool."""
-        tools = default_tool_registry.list_tools()
-        tool_names = [t["name"] for t in tools]
-        self.assertNotIn("rag_search_tool", tool_names)
-        self.assertIsNone(default_tool_registry.get_tool("rag_search_tool"))
+    def test_rag_tool_is_registered_and_honest(self):
+        """
+        The knowledge base tool is available, and returns nothing rather than
+        placeholder evidence when it has no genuine match.
 
-    def test_rag_endpoints_detached_from_fastapi(self):
-        """RAG API routes are detached from the active FastAPI server."""
+        Replaces a test asserting the tool was unregistered. Deletion was the
+        wrong remedy: the failure was fabricated fallback snippets and random
+        hash embeddings, both of which are now removed at the source.
+        """
+        tool = default_tool_registry.get_tool("rag_search_tool")
+        self.assertIsNotNone(tool, "rag_search_tool is not registered")
+
+        out = tool.run(query="zzzz nonexistent topic qqqq", top_k=3)
+        self.assertEqual(out["results"], [], "fabricated evidence for an unmatched query")
+        self.assertIn(out["status"], {"NO_MATCH", "UNAVAILABLE", "ERROR"})
+
+    def test_rag_endpoints_are_mounted(self):
+        """RAG API routes are reachable; 404 would mean grounding was lost."""
         client = TestClient(app)
 
-        res_stats = client.get("/api/rag/stats")
-        self.assertEqual(res_stats.status_code, 404)
-
-        res_query = client.post("/api/rag/query", json={"query": "safety policy"})
-        self.assertEqual(res_query.status_code, 404)
-
-        res_ingest = client.post("/api/rag/ingest/text", json={"text": "data", "doc_name": "test.txt"})
-        self.assertEqual(res_ingest.status_code, 404)
+        self.assertNotEqual(client.get("/api/rag/stats").status_code, 404)
+        self.assertNotEqual(client.get("/api/rag/health").status_code, 404)
+        self.assertNotEqual(
+            client.post("/api/rag/query", json={"query": "safety policy"}).status_code, 404
+        )
 
 
 if __name__ == "__main__":

@@ -9,11 +9,12 @@ Everything else is unchanged from your existing file.
 
 import json
 import asyncio
+import logging
 import os
 import uuid
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException, status, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -21,6 +22,10 @@ from backend.agent.state import AgentState, AgentTrace, HumanDecision
 from backend.agent.orchestrator import AgentOrchestrator
 from backend.agent.verifier import SelfVerifier
 from backend.agent.human_approval import HumanApprovalManager
+from backend.api.auth_router import current_user
+from backend.storage.conversations import get_conversation_store
+
+logger = logging.getLogger("kavach.agent_router")
 
 router = APIRouter(prefix="/api/agent", tags=["Agent Orchestrator"])
 orchestrator = AgentOrchestrator()
@@ -35,6 +40,10 @@ class RunAgentRequest(BaseModel):
     user_query: str = Field(..., description="User query or instruction prompt")
     input_files: Optional[List[str]] = Field(default_factory=list, description="Uploaded file paths")
     task_id: Optional[str] = Field(None, description="Optional task ID")
+    conversation_id: Optional[str] = Field(
+        None,
+        description="Conversation to continue. Omit to start a new one; the id is returned on the state.",
+    )
 
 
 class HumanApprovalRequest(BaseModel):
@@ -108,23 +117,72 @@ def cancel_agent_workflow(task_id: str):
     return state
 
 
+def _begin_turn(req: RunAgentRequest, user: Dict[str, Any]) -> AgentState:
+    """
+    Resolves the conversation, records the user's message, and builds the task
+    with prior turns attached so follow-up questions resolve.
+
+    History is read *before* the new message is stored, so the current query is
+    not duplicated inside the transcript the model sees.
+    """
+    store = get_conversation_store()
+    conversation_id = store.ensure_conversation(
+        req.conversation_id, req.user_query, user_id=user["id"]
+    )
+    history = store.get_history_for_prompt(conversation_id)
+    store.add_message(conversation_id, "user", req.user_query)
+
+    return orchestrator.create_task(
+        query=req.user_query,
+        input_files=req.input_files,
+        task_id=req.task_id,
+        conversation_id=conversation_id,
+        conversation_history=history,
+    )
+
+
+def _finish_turn(state: AgentState) -> None:
+    """Persists the assistant's reply with its citations."""
+    if not state.conversation_id:
+        return
+
+    answer = state.text_response or state.findings.get("synthesized_analysis") or ""
+    if not answer:
+        return
+
+    citations = [
+        {"doc": ev.source_doc, "page": ev.page_num, "score": ev.confidence_score}
+        for ev in state.retrieved_evidence
+    ]
+    try:
+        get_conversation_store().add_message(
+            state.conversation_id, "assistant", answer, citations or None, state.task_id
+        )
+    except Exception as e:
+        # A history write must never fail the user's answer.
+        logger.warning(f"Could not persist assistant message: {e}")
+
+
 @router.post("/run", response_model=AgentState, status_code=status.HTTP_200_OK)
-def run_agent_workflow(req: RunAgentRequest):
+def run_agent_workflow(req: RunAgentRequest, user: Dict[str, Any] = Depends(current_user)):
     """Starts agent task, runs execution plan steps, and executes self-verification."""
-    state = orchestrator.create_task(query=req.user_query, input_files=req.input_files, task_id=req.task_id)
+    state = _begin_turn(req, user)
     state = orchestrator.run_all_steps(state)
     SelfVerifier.verify(state)
     if state.verification and state.verification.verified:
         HumanApprovalManager.submit_decision(state=state, decision=HumanDecision.APPROVED, reviewer="Sovereign Governance Gate")
+    _finish_turn(state)
     return state
 
 
 @router.post("/run-stream")
-async def run_agent_workflow_stream(req: RunAgentRequest):
+async def run_agent_workflow_stream(
+    req: RunAgentRequest, user: Dict[str, Any] = Depends(current_user)
+):
     """Streams real-time step-by-step agent execution updates via Server-Sent Events (SSE)."""
     async def event_generator():
         try:
-            state = orchestrator.create_task(query=req.user_query, input_files=req.input_files, task_id=req.task_id)
+            state = _begin_turn(req, user)
             yield f"data: {json.dumps({'type': 'INIT', 'state': state.model_dump()})}\n\n"
             await asyncio.sleep(0.1)
 
@@ -151,6 +209,7 @@ async def run_agent_workflow_stream(req: RunAgentRequest):
             if not state.text_response and state.findings.get("synthesized_analysis"):
                 state.text_response = state.findings["synthesized_analysis"]
 
+            _finish_turn(state)
             yield f"data: {json.dumps({'type': 'COMPLETE', 'state': state.model_dump()})}\n\n"
         except asyncio.CancelledError:
             if 'state' in locals():

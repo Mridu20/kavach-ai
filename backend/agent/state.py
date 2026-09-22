@@ -108,6 +108,11 @@ class AgentState(BaseModel):
     task_id: str
     user_query: str
     input_files: List[str] = Field(default_factory=list)
+    conversation_id: Optional[str] = None
+    # Prior turns as {"role": "user"|"assistant", "content": str}, oldest first.
+    # Populated by the API layer from the conversation store so the model can
+    # resolve references like "explain that further".
+    conversation_history: List[Dict[str, str]] = Field(default_factory=list)
     category: TaskCategory = TaskCategory.GENERAL_REASONING
     plan: List[PlanStep] = Field(default_factory=list)
     current_step_index: int = 0

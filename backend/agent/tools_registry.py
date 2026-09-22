@@ -10,7 +10,7 @@ import logging
 import subprocess
 import tempfile
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
 
@@ -289,12 +289,42 @@ class ModelRouterTool(BaseAgentTool):
     description = "Route query or reasoning task to local language model."
     category = "routing"
 
-    def _is_ollama_available(self, client: httpx.Client) -> bool:
+    def _installed_models(self, client: httpx.Client) -> Optional[List[str]]:
+        """
+        Returns the models Ollama actually has, or None if the daemon is down.
+
+        None and [] mean different things and must stay distinguishable: a dead
+        daemon is an operator problem, a missing model is a one-line pull.
+        """
         try:
-            resp = client.get(f"{OLLAMA_URL}/api/tags", timeout=1.0)
-            return resp.status_code == 200
+            resp = client.get(f"{OLLAMA_URL}/api/tags", timeout=2.0)
+            if resp.status_code != 200:
+                return None
+            return [m.get("name", "") for m in resp.json().get("models", [])]
         except Exception:
-            return False
+            return None
+
+    @staticmethod
+    def _resolve_model(requested: str, installed: List[str]) -> Tuple[str, Optional[str]]:
+        """
+        Picks the best available model for a request.
+
+        Falls back to any installed model rather than dead-ending, and reports
+        the substitution so the answer can say which model actually ran. A
+        degraded answer from the wrong specialist beats no answer at all, but
+        only when the substitution is stated rather than hidden.
+        """
+        if requested in installed:
+            return requested, None
+
+        # Prefer the general-purpose model, then anything else present.
+        for candidate in (MODEL_MAP["general"], *installed):
+            if candidate in installed:
+                return candidate, (
+                    f"'{requested}' is not installed; answered with '{candidate}' instead. "
+                    f"Run `ollama pull {requested}` to enable the specialised model."
+                )
+        return requested, None
 
     def _unload_other_models(self, client: httpx.Client, selected_model: str):
         for model in set(MODEL_MAP.values()):
@@ -309,63 +339,142 @@ class ModelRouterTool(BaseAgentTool):
                     pass
 
     def run(self, task_type: str = "general", prompt: str = "", **kwargs) -> Dict[str, Any]:
-        selected_model = MODEL_MAP.get(task_type, MODEL_MAP["general"])
+        requested_model = MODEL_MAP.get(task_type, MODEL_MAP["general"])
+        selected_model = requested_model
+        substitution: Optional[str] = None
 
         try:
             with httpx.Client(timeout=10.0) as client:
-                if self._is_ollama_available(client):
-                    self._unload_other_models(client, selected_model)
-                    resp = client.post(
-                        f"{OLLAMA_URL}/api/generate",
-                        json={
-                            "model": selected_model,
-                            "prompt": prompt,
-                            "stream": False,
-                            "keep_alive": "5m",
-                        },
-                        timeout=60.0,
-                    )
-                    resp.raise_for_status()
-                    data = resp.json()
-                    response_text = data.get("response", "").strip()
-                    if response_text:
-                        return {
-                            "selected_model": selected_model,
-                            "task_type": task_type,
-                            "response": response_text,
-                            "engine": "OLLAMA_LOCAL_MODEL",
-                        }
-        except Exception as e:
-            logger.warning(f"Ollama local model not reachable ({e})")
+                installed = self._installed_models(client)
 
-        # Honest, transparent fallback. No fake evidence, no fake inspection findings, no fake ASME formulas.
-        fallback_notice = (
-            f"The local language model server (Ollama at {OLLAMA_URL}) is currently unreachable. "
-            f"To enable natural language responses, please ensure Ollama is running (`ollama serve`) "
-            f"with the model `{selected_model}` available."
-        )
+                if installed is None:
+                    return self._offline(
+                        requested_model,
+                        task_type,
+                        f"The local language model server (Ollama at {OLLAMA_URL}) is not running. "
+                        f"Start it with `ollama serve`.",
+                        f"Ollama unreachable at {OLLAMA_URL}",
+                    )
+
+                if not installed:
+                    return self._offline(
+                        requested_model,
+                        task_type,
+                        f"Ollama is running but has no models installed. "
+                        f"Run `ollama pull {requested_model}` to enable responses.",
+                        "No models installed",
+                    )
+
+                selected_model, substitution = self._resolve_model(requested_model, installed)
+
+                self._unload_other_models(client, selected_model)
+                resp = client.post(
+                    f"{OLLAMA_URL}/api/generate",
+                    json={
+                        "model": selected_model,
+                        "prompt": prompt,
+                        "stream": False,
+                        "keep_alive": "5m",
+                    },
+                    timeout=180.0,
+                )
+                resp.raise_for_status()
+                response_text = resp.json().get("response", "").strip()
+
+                if response_text:
+                    result = {
+                        "selected_model": selected_model,
+                        "requested_model": requested_model,
+                        "task_type": task_type,
+                        "response": response_text,
+                        "engine": "OLLAMA_LOCAL_MODEL",
+                    }
+                    if substitution:
+                        result["model_substitution"] = substitution
+                    return result
+
+                return self._offline(
+                    selected_model,
+                    task_type,
+                    f"The local model '{selected_model}' returned an empty response. "
+                    f"Try again, or check `ollama ps` for memory pressure.",
+                    "Empty model response",
+                )
+
+        except Exception as e:
+            logger.warning(f"Local model call failed for '{selected_model}': {e}")
+            return self._offline(
+                selected_model,
+                task_type,
+                f"The local model '{selected_model}' could not be reached: {e}",
+                str(e),
+            )
+
+    @staticmethod
+    def _offline(model: str, task_type: str, notice: str, error: str) -> Dict[str, Any]:
+        """Honest failure. Never substitutes fabricated content for a real answer."""
         return {
-            "selected_model": selected_model,
+            "selected_model": model,
             "task_type": task_type,
-            "response": fallback_notice,
+            "response": notice,
             "engine": "OFFLINE_NOTICE",
-            "error": f"Ollama unreachable at {OLLAMA_URL}",
+            "error": error,
         }
 
 
 # Deprecated legacy RAG tool kept for backward-compatibility only, but NEVER registered in active agent.
 class RAGSearchTool(BaseAgentTool):
-    """Deprecated: Local vector store search tool."""
+    """
+    Semantic search over the organisation's own documents (knowledge_base/).
+
+    Contract, in order of importance:
+      1. Never invents evidence. No demo data, no placeholder snippets.
+      2. An empty result set is a valid, meaningful answer meaning "the corpus
+         does not cover this". Callers must relay that, not paper over it.
+      3. If embeddings are unavailable the tool reports UNAVAILABLE rather than
+         returning low-quality matches, so a misconfiguration never masquerades
+         as a grounded answer.
+    """
     name = "rag_search_tool"
-    description = "Search local documents using vector embeddings (deprecated)."
+    description = (
+        "Search the organisation's local knowledge base (SOPs, manuals, internal "
+        "correspondence) using on-premise vector embeddings."
+    )
     category = "retrieval"
 
-    def run(self, query: str = "", top_k: int = 3, **kwargs) -> Dict[str, Any]:
-        # Return empty honest result without fake demo fallback evidence
+    def run(self, query: str = "", top_k: int = 3, min_score: float = 0.5, **kwargs) -> Dict[str, Any]:
+        if not query or not query.strip():
+            return {"query": query, "results": [], "status": "EMPTY_QUERY"}
+
+        try:
+            from backend.rag.store import get_vector_store, EmbeddingUnavailableError
+        except ImportError as e:
+            return {"query": query, "results": [], "status": "UNAVAILABLE", "error": str(e)}
+
+        try:
+            store = get_vector_store()
+            results = store.query(query_text=query, top_k=top_k, min_score=min_score)
+        except EmbeddingUnavailableError as e:
+            # Surfaced deliberately: the operator needs to fix Ollama, and the
+            # model must not be handed guesswork in the meantime.
+            logger.error(f"Knowledge base search unavailable: {e}")
+            return {
+                "query": query,
+                "results": [],
+                "status": "UNAVAILABLE",
+                "error": str(e),
+            }
+        except Exception as e:
+            logger.error(f"Knowledge base search failed: {e}")
+            return {"query": query, "results": [], "status": "ERROR", "error": str(e)}
+
         return {
             "query": query,
-            "results": [],
-            "status": "DEPRECATED",
+            "results": results,
+            "status": "OK" if results else "NO_MATCH",
+            "citations": [
+                f"{r['doc_name']}, p.{r['page']}" for r in results
+            ],
         }
 
 
@@ -377,7 +486,6 @@ class ToolRegistry:
         self._register_defaults()
 
     def _register_defaults(self):
-        # Only register clean, active general-purpose tools (no rag_search_tool)
         defaults = [
             OCRTool(),
             VisionAnalysisTool(),
@@ -385,6 +493,7 @@ class ToolRegistry:
             DocxGeneratorTool(),
             XlsxGeneratorTool(),
             ModelRouterTool(),
+            RAGSearchTool(),
         ]
         for tool in defaults:
             self.register_tool(tool)

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
-import { ShieldCheck, Wifi, WifiOff, Activity, User, LogOut } from "lucide-react";
+import { ShieldCheck, Wifi, WifiOff, Activity, User, Users, LogOut } from "lucide-react";
 import { fetchAvailableTools } from "../services/api";
-import type { UserProfile } from "../types/auth";
+import type { AuthUser } from "../services/api";
 
 export type NavTab = "scanner" | "network";
 
@@ -9,7 +9,7 @@ interface NavbarProps {
   activeTab: NavTab;
   setActiveTab: (tab: NavTab) => void;
   isRunning: boolean;
-  user: UserProfile | null;
+  user: AuthUser | null;
   onOpenAuth: () => void;
   onLogout: () => void;
 }
@@ -168,12 +168,33 @@ export const Navbar: React.FC<NavbarProps> = ({
             >
               <div style={{ textAlign: "right" }}>
                 <div style={{ fontSize: "0.8rem", fontWeight: 700, color: "var(--brand-navy)", lineHeight: 1.2 }}>
-                  {user.fullName}
+                  {user.full_name}
                 </div>
                 <div style={{ fontSize: "0.7rem", color: "var(--brand-blue)", fontFamily: "var(--font-mono)", fontWeight: 600 }}>
-                  {user.employeeId}
+                  {user.employee_id}
                 </div>
               </div>
+
+              {user.role === "admin" && (
+                <button
+                  onClick={onOpenAuth}
+                  title="Manage user accounts"
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    width: "28px",
+                    height: "28px",
+                    borderRadius: "4px",
+                    background: "#ffffff",
+                    border: "1px solid var(--border-dim)",
+                    color: "var(--text-muted)",
+                    cursor: "pointer",
+                  }}
+                >
+                  <Users size={14} />
+                </button>
+              )}
 
               <button
                 onClick={onLogout}

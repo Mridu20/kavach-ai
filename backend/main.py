@@ -6,6 +6,9 @@ On-premise sovereign general-purpose AI agent.
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from backend.api.agent_router import router as agent_router
+from backend.api.auth_router import router as auth_router
+from backend.api.conversations_router import router as conversations_router
+from backend.api.rag_router import router as rag_router
 from backend.api.system_router import router as system_router
 
 app = FastAPI(
@@ -23,7 +26,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth_router)
 app.include_router(agent_router)
+app.include_router(conversations_router)
+app.include_router(rag_router)
 app.include_router(system_router)
 
 

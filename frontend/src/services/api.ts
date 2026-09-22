@@ -14,6 +14,58 @@
 
 import { AgentState, HumanDecision, ModelInfo, NetworkPacketLog } from "../types/agent";
 
+
+// ── Session token ──────────────────────────────────────────────────────────
+// Held in localStorage so a refresh keeps you signed in. The server treats the
+// token as opaque and stores only its digest, so this value is useless once
+// revoked or expired.
+
+const TOKEN_KEY = "kavach_token";
+
+export function getToken(): string | null {
+  try {
+    return localStorage.getItem(TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function setToken(token: string | null): void {
+  try {
+    if (token) localStorage.setItem(TOKEN_KEY, token);
+    else localStorage.removeItem(TOKEN_KEY);
+  } catch {
+    // Private browsing or blocked storage: the session simply won't persist.
+  }
+}
+
+/** Thrown when the server rejects the session, so the UI can send the user back to sign-in. */
+export class UnauthorizedError extends Error {
+  constructor(message = "Your session has expired. Please sign in again.") {
+    super(message);
+    this.name = "UnauthorizedError";
+  }
+}
+
+/**
+ * fetch with the session token attached.
+ *
+ * Every call goes through here so a new endpoint cannot accidentally ship
+ * unauthenticated, and so a 401 is surfaced as one recognisable error type.
+ */
+export async function authedFetch(url: string, init: RequestInit = {}): Promise<Response> {
+  const token = getToken();
+  const headers = new Headers(init.headers || {});
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+
+  const response = await fetch(url, { ...init, headers });
+  if (response.status === 401) {
+    setToken(null);
+    throw new UnauthorizedError();
+  }
+  return response;
+}
+
 const API_BASE_URL = "http://localhost:8000/api/agent";
 const SYSTEM_BASE_URL = "http://localhost:8000/api/system";
 
@@ -104,7 +156,7 @@ export const sampleIndustrialScenarios = sampleScenarios;
 export async function fetchAvailableTools(): Promise<
   Array<{ name: string; description: string; category: string }>
 > {
-  const response = await fetch(`${API_BASE_URL}/tools`);
+  const response = await authedFetch(`${API_BASE_URL}/tools`);
   if (!response.ok) throw new Error(`Tools fetch failed: ${response.status}`);
   return response.json();
 }
@@ -117,7 +169,7 @@ export async function uploadFile(file: File): Promise<{ saved_path: string; orig
   const formData = new FormData();
   formData.append("file", file);
 
-  const response = await fetch(`${API_BASE_URL}/upload`, {
+  const response = await authedFetch(`${API_BASE_URL}/upload`, {
     method: "POST",
     body: formData,
   });
@@ -137,12 +189,17 @@ export async function uploadFile(file: File): Promise<{ saved_path: string; orig
  */
 export async function runAgentWorkflow(
   query: string,
-  inputFiles: string[] = []
+  inputFiles: string[] = [],
+  conversationId?: string | null
 ): Promise<AgentState> {
-  const response = await fetch(`${API_BASE_URL}/run`, {
+  const response = await authedFetch(`${API_BASE_URL}/run`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ user_query: query, input_files: inputFiles }),
+    body: JSON.stringify({
+      user_query: query,
+      input_files: inputFiles,
+      conversation_id: conversationId ?? null,
+    }),
   });
 
   if (!response.ok) {
@@ -162,18 +219,23 @@ export async function runAgentWorkflowStream(
   query: string,
   inputFiles: string[] = [],
   onProgress?: (state: AgentState) => void,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  conversationId?: string | null
 ): Promise<AgentState> {
   try {
-    const response = await fetch(`${API_BASE_URL}/run-stream`, {
+    const response = await authedFetch(`${API_BASE_URL}/run-stream`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ user_query: query, input_files: inputFiles }),
+      body: JSON.stringify({
+        user_query: query,
+        input_files: inputFiles,
+        conversation_id: conversationId ?? null,
+      }),
       signal,
     });
 
     if (!response.ok || !response.body) {
-      return runAgentWorkflow(query, inputFiles);
+      return runAgentWorkflow(query, inputFiles, conversationId);
     }
 
     const reader = response.body.getReader();
@@ -216,13 +278,13 @@ export async function runAgentWorkflowStream(
     }
 
     if (finalState) return finalState;
-    return runAgentWorkflow(query, inputFiles);
+    return runAgentWorkflow(query, inputFiles, conversationId);
   } catch (err) {
     if (signal?.aborted) {
       throw new Error("Generation cancelled by user.");
     }
     // Fallback if SSE streaming endpoint fails
-    return runAgentWorkflow(query, inputFiles);
+    return runAgentWorkflow(query, inputFiles, conversationId);
   }
 }
 
@@ -230,7 +292,7 @@ export async function runAgentWorkflowStream(
  * Signals backend to abort execution of the task immediately.
  */
 export async function cancelAgentWorkflow(taskId: string): Promise<AgentState> {
-  const response = await fetch(`${API_BASE_URL}/cancel/${encodeURIComponent(taskId)}`, {
+  const response = await authedFetch(`${API_BASE_URL}/cancel/${encodeURIComponent(taskId)}`, {
     method: "POST",
   });
   if (!response.ok) {
@@ -246,7 +308,7 @@ export async function submitHumanApproval(
   comments?: string,
   modifications?: Record<string, unknown>
 ): Promise<AgentState> {
-  const response = await fetch(`${API_BASE_URL}/approve`, {
+  const response = await authedFetch(`${API_BASE_URL}/approve`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ task_id: taskId, decision, reviewer, comments, modifications }),
@@ -269,7 +331,7 @@ export async function fetchNetworkStats(): Promise<{
   external_count: number;
   connections: Array<{ id: string; destination: string; isExternal: boolean; status: string }>;
 }> {
-  const response = await fetch(`${SYSTEM_BASE_URL}/network`);
+  const response = await authedFetch(`${SYSTEM_BASE_URL}/network`);
   if (!response.ok) throw new Error(`Network stats fetch failed: ${response.status}`);
   return response.json();
 }
@@ -280,4 +342,187 @@ export async function fetchNetworkStats(): Promise<{
  */
 export function getDeliverableDownloadUrl(filename: string): string {
   return `${API_BASE_URL}/download/${encodeURIComponent(filename)}`;
+}
+
+// ── Conversation history ───────────────────────────────────────────────────
+// Backed by a local SQLite file on the server. Nothing leaves the host.
+
+const CONVERSATIONS_BASE_URL = "http://localhost:8000/api/conversations";
+
+export interface ConversationSummary {
+  id: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+  message_count: number;
+}
+
+export interface StoredMessage {
+  id: number;
+  conversation_id: string;
+  role: "user" | "assistant";
+  content: string;
+  citations?: Array<{ doc: string; page?: number; score?: number }> | null;
+  task_id?: string | null;
+  created_at: string;
+}
+
+export async function fetchConversations(limit = 50): Promise<ConversationSummary[]> {
+  const response = await authedFetch(`${CONVERSATIONS_BASE_URL}?limit=${limit}`);
+  if (!response.ok) throw new Error(`Conversation list failed: ${response.status}`);
+  const data = await response.json();
+  return data.conversations ?? [];
+}
+
+export async function fetchConversation(
+  conversationId: string
+): Promise<ConversationSummary & { messages: StoredMessage[] }> {
+  const response = await authedFetch(`${CONVERSATIONS_BASE_URL}/${encodeURIComponent(conversationId)}`);
+  if (!response.ok) throw new Error(`Conversation fetch failed: ${response.status}`);
+  return response.json();
+}
+
+export async function deleteConversation(conversationId: string): Promise<void> {
+  const response = await authedFetch(`${CONVERSATIONS_BASE_URL}/${encodeURIComponent(conversationId)}`, {
+    method: "DELETE",
+  });
+  if (!response.ok) throw new Error(`Conversation delete failed: ${response.status}`);
+}
+
+export async function renameConversation(
+  conversationId: string,
+  title: string
+): Promise<ConversationSummary> {
+  const response = await authedFetch(`${CONVERSATIONS_BASE_URL}/${encodeURIComponent(conversationId)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title }),
+  });
+  if (!response.ok) throw new Error(`Conversation rename failed: ${response.status}`);
+  return response.json();
+}
+
+// ── Authentication ─────────────────────────────────────────────────────────
+// Local accounts only. There is no identity provider and no outbound call:
+// an air-gapped deployment must still be able to sign people in.
+
+const AUTH_BASE_URL = "http://localhost:8000/api/auth";
+
+export interface AuthUser {
+  id: string;
+  username: string;
+  full_name: string;
+  email?: string | null;
+  employee_id?: string | null;
+  role: "admin" | "user";
+  is_active: boolean;
+  created_at: string;
+}
+
+async function authJson(path: string, init: RequestInit = {}): Promise<any> {
+  const token = getToken();
+  const headers = new Headers(init.headers || {});
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  if (init.body) headers.set("Content-Type", "application/json");
+
+  const response = await fetch(`${AUTH_BASE_URL}${path}`, { ...init, headers });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(formatApiError(data, response.status));
+  }
+  return data;
+}
+
+/**
+ * Turns a FastAPI error body into something a person can act on.
+ *
+ * Validation failures arrive as `detail: [{loc, msg}, ...]`, not a string.
+ * Passing that array to `new Error()` renders "[object Object]", which tells
+ * the user nothing and hides the actual problem — which field, and why.
+ */
+export function formatApiError(data: any, status?: number): string {
+  const detail = data?.detail;
+
+  if (typeof detail === "string") return detail;
+
+  if (Array.isArray(detail)) {
+    const messages = detail.map((item) => {
+      const field = Array.isArray(item?.loc)
+        ? item.loc.filter((p: unknown) => p !== "body").join(".")
+        : "";
+      const message = item?.msg || "is invalid";
+      if (!field) return message;
+      // "username: String should have at least 3 characters"
+      const label = field.charAt(0).toUpperCase() + field.slice(1).replace(/_/g, " ");
+      return `${label}: ${message}`;
+    });
+    if (messages.length) return messages.join(". ");
+  }
+
+  return `Request failed${status ? ` (${status})` : ""}.`;
+}
+
+/** Whether this deployment still needs its first administrator. */
+export async function fetchAuthStatus(): Promise<{ needs_bootstrap: boolean; user_count: number }> {
+  return authJson("/status");
+}
+
+export async function bootstrapAdmin(payload: {
+  username: string;
+  password: string;
+  full_name: string;
+  email?: string;
+  employee_id?: string;
+}): Promise<AuthUser> {
+  return authJson("/bootstrap", { method: "POST", body: JSON.stringify(payload) });
+}
+
+export async function login(username: string, password: string): Promise<AuthUser> {
+  const data = await authJson("/login", {
+    method: "POST",
+    body: JSON.stringify({ username, password }),
+  });
+  setToken(data.token);
+  return data.user;
+}
+
+export async function logout(): Promise<void> {
+  try {
+    await authJson("/logout", { method: "POST" });
+  } finally {
+    // Clear locally even if the server call fails, so the UI never strands
+    // someone in a signed-in state they cannot leave.
+    setToken(null);
+  }
+}
+
+/** Resolves the current session, or null when not signed in. */
+export async function fetchMe(): Promise<AuthUser | null> {
+  if (!getToken()) return null;
+  try {
+    return await authJson("/me");
+  } catch {
+    setToken(null);
+    return null;
+  }
+}
+
+export async function fetchUsers(): Promise<AuthUser[]> {
+  const data = await authJson("/users");
+  return data.users ?? [];
+}
+
+export async function createUser(payload: {
+  username: string;
+  password: string;
+  full_name: string;
+  email?: string;
+  employee_id?: string;
+  role?: "admin" | "user";
+}): Promise<AuthUser> {
+  return authJson("/users", { method: "POST", body: JSON.stringify(payload) });
+}
+
+export async function deleteUser(userId: string): Promise<void> {
+  await authJson(`/users/${encodeURIComponent(userId)}`, { method: "DELETE" });
 }

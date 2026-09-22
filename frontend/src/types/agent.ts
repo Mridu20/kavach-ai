@@ -94,6 +94,9 @@ export interface AgentState {
   task_id: string;
   user_query: string;
   input_files: string[];
+  /** Conversation this turn belongs to; assigned by the backend on turn one. */
+  conversation_id?: string | null;
+  conversation_history?: Array<{ role: string; content: string }>;
   category: TaskCategory;
   plan: PlanStep[];
   current_step_index: number;

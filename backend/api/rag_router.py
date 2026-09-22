@@ -6,7 +6,11 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, HTTPException, status, UploadFile, File, Form
 from pydantic import BaseModel, Field
 
-from backend.rag.store import get_vector_store
+from backend.rag.store import (
+    DEFAULT_MIN_SCORE,
+    EmbeddingUnavailableError,
+    get_vector_store,
+)
 
 router = APIRouter(prefix="/api/rag", tags=["Vector RAG"])
 
@@ -14,6 +18,9 @@ router = APIRouter(prefix="/api/rag", tags=["Vector RAG"])
 class RAGQueryRequest(BaseModel):
     query: str = Field(..., description="Semantic search query string")
     top_k: Optional[int] = Field(3, description="Number of matching snippets to return")
+    min_score: Optional[float] = Field(
+        DEFAULT_MIN_SCORE, description="Minimum cosine similarity for a result to be returned"
+    )
 
 
 class RAGIngestTextRequest(BaseModel):
@@ -27,7 +34,18 @@ class RAGIngestTextRequest(BaseModel):
 def query_vector_store(req: RAGQueryRequest):
     """Executes local vector similarity search over stored SOPs and documents."""
     store = get_vector_store()
-    results = store.query(query_text=req.query, top_k=req.top_k or 3)
+    try:
+        results = store.query(
+            query_text=req.query,
+            top_k=req.top_k or 3,
+            min_score=req.min_score if req.min_score is not None else DEFAULT_MIN_SCORE,
+        )
+    except EmbeddingUnavailableError as e:
+        # 503 rather than a degraded 200: a caller must be able to tell
+        # "nothing matched" apart from "search is broken".
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(e)
+        ) from e
     return {
         "query": req.query,
         "results_count": len(results),
@@ -65,6 +83,36 @@ def get_vector_store_stats():
         "chunk_size": store.chunk_size,
         "chunk_overlap": store.chunk_overlap,
     }
+
+
+@router.get("/health", status_code=status.HTTP_200_OK)
+def knowledge_base_health():
+    """
+    Reports whether grounded retrieval is actually possible right now.
+
+    Check this first when answers look wrong: if embeddings_available is false,
+    retrieval is down and the assistant is answering from general knowledge only.
+    """
+    return get_vector_store().health()
+
+
+@router.post("/reindex", status_code=status.HTTP_200_OK)
+def reindex_knowledge_base():
+    """
+    Rebuilds the index from knowledge_base/ on disk.
+
+    Clears first so that edited or deleted source documents do not leave stale
+    chunks behind, which would let the assistant cite text no longer in force.
+    """
+    store = get_vector_store()
+    try:
+        store.clear()
+        report = store.seed_from_knowledge_base()
+    except EmbeddingUnavailableError as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(e)
+        ) from e
+    return {"status": "REINDEXED", "total_chunks": store.count(), **report}
 
 
 @router.post("/clear", status_code=status.HTTP_200_OK)
