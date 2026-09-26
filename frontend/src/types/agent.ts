@@ -3,11 +3,12 @@
  */
 
 export type TaskCategory =
+  | "GENERAL_REASONING"
+  | "DOCUMENT_ANALYSIS"
   | "DOCUMENT_INSPECTION"
-  | "SOP_RAG_QUERY"
   | "SANDBOX_CODE_EXECUTION"
   | "DELIVERABLE_GENERATION"
-  | "GENERAL_REASONING";
+  | "SOP_RAG_QUERY";
 
 export type StepStatus = "PENDING" | "IN_PROGRESS" | "COMPLETED" | "FAILED" | "SKIPPED";
 
@@ -93,6 +94,9 @@ export interface AgentState {
   task_id: string;
   user_query: string;
   input_files: string[];
+  /** Conversation this turn belongs to; assigned by the backend on turn one. */
+  conversation_id?: string | null;
+  conversation_history?: Array<{ role: string; content: string }>;
   category: TaskCategory;
   plan: PlanStep[];
   current_step_index: number;
@@ -100,6 +104,21 @@ export interface AgentState {
   retrieved_evidence: EvidenceItem[];
   findings: Record<string, any>;
   draft_deliverables: Record<string, string>;
+  text_response?: string;
+  calculation_details?: {
+    standard?: string;
+    formula?: string;
+    parameters?: Record<string, string>;
+    steps?: Array<{ step: number; title: string; formula: string; result: string }>;
+    verdict?: string;
+  };
+  multi_doc_comparison?: {
+    doc1: string;
+    doc2: string;
+    metrics: Array<{ parameter: string; baseline: string; current: string; variance: string; severity: string }>;
+    recommendation: string;
+  };
+  cancellation_requested?: boolean;
   verification?: VerificationResult;
   approval: HumanApprovalState;
   trace: AgentTrace;

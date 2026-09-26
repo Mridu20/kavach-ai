@@ -1,19 +1,87 @@
-================================================================================
-MAINTENANCE MANUAL: HEAVY INDUSTRIAL STEAM TURBINE (MODEL T-850)
+MAINTENANCE MANUAL: HEAVY INDUSTRIAL STEAM TURBINE, MODEL T-850
 Document ID: KAVACH-MM-TURBINE-2025
-Classification: Sovereign Confidential Technical Manual
-================================================================================
+Revision: 1.2
+Effective Date: 15 January 2025
+Issuing Authority: Rotating Equipment Engineering
+Classification: INTERNAL - CONFIDENTIAL
 
-SECTION 1: ROTOR & BEARING MAINTENANCE
-1.1 Vibration Thresholds:
-    - Normal operating vibration: < 1.5 mm/s RMS.
-    - Warning threshold: 2.8 mm/s RMS — schedule rotor balancing during next maintenance cycle.
-    - Critical Trip threshold: 4.5 mm/s RMS — automated turbine trip system engages within 3 seconds.
+SECTION 1: VIBRATION MONITORING AND TRIP THRESHOLDS
 
-SECTION 2: LUBRICATION & COOLING
-2.1 Synthetic Oil Specs: ISO VG 46 turbine oil.
-2.2 Oil filter change interval: Every 2,000 operating hours or when differential pressure across filter exceeds 1.2 bar.
+1.1 Normal operating vibration for the T-850 turbine rotor is below 1.5 mm per
+second RMS measured at the bearing housings in the horizontal plane.
 
-SECTION 3: SEAL & VALVE REPLACEMENT PROCEDURES
-3.1 Secondary containment seal replacement: Required every 12 months for heavy steam turbine housing.
-3.2 Main steam stop valve inspection: Perform dye penetrant testing on valve stem every 6 months.
+1.2 An alarm must be raised at 2.8 mm per second RMS. The unit remains in
+service but requires investigation within the same shift.
+
+1.3 The critical trip threshold is 4.5 mm per second RMS. The machine
+protection system will initiate an automatic trip at this level without
+operator intervention.
+
+1.4 Axial displacement of the rotor exceeding 0.5 mm from the certified
+reference position requires immediate shutdown and inspection of the thrust
+bearing assembly.
+
+1.5 Vibration readings must be recorded at four-hour intervals during normal
+operation and at 30 minute intervals during start-up and run-down.
+
+SECTION 2: LUBRICATION SYSTEM
+
+2.1 Approved lubricant is synthetic turbine oil grade ISO VG 46. Substitution
+requires written approval from Rotating Equipment Engineering.
+
+2.2 Oil filter elements must be changed every 2,000 operating hours, or
+immediately when the differential pressure across the filter exceeds 1.2 bar,
+whichever occurs first.
+
+2.3 Lubricating oil temperature at the bearing inlet must be maintained between
+40 and 50 degrees Celsius. Outlet temperature above 70 degrees Celsius
+indicates bearing distress and requires investigation.
+
+2.4 Oil analysis samples must be drawn quarterly and tested for viscosity,
+water content, total acid number and particle count. Water content above 500
+parts per million requires the charge to be replaced.
+
+SECTION 3: SEALS AND CONTAINMENT
+
+3.1 Secondary containment seal replacement is required every 12 months.
+
+3.2 Labyrinth seal clearances must be measured at every major overhaul.
+Clearance exceeding 0.8 mm requires seal strip replacement.
+
+3.3 Gland steam condenser vacuum must be maintained between 0.85 and 0.95 bar
+absolute to prevent steam leakage along the shaft.
+
+SECTION 4: OVERHAUL SCHEDULE
+
+4.1 Minor inspection: every 8,000 operating hours. Covers bearing inspection,
+oil system service, control valve stroke testing and instrument calibration.
+
+4.2 Major overhaul: every 32,000 operating hours or six calendar years,
+whichever occurs first. Requires full rotor removal and blade inspection.
+
+4.3 Blade tip erosion exceeding 1.5 mm in depth requires blade replacement.
+Erosion between 0.8 mm and 1.5 mm may be dressed and returned to service with
+engineering approval.
+
+SECTION 5: START-UP PROCEDURE
+
+5.1 Confirm turning gear has operated continuously for a minimum of four hours
+prior to admitting steam.
+
+5.2 Steam admission must follow the certified run-up curve. Maximum permitted
+acceleration is 150 revolutions per minute per minute below 2,000 rpm.
+
+5.3 Hold at 1,200 rpm for a minimum of 20 minutes for thermal soak before
+continuing acceleration to rated speed.
+
+5.4 Critical speed range is 2,100 to 2,600 rpm. The machine must traverse this
+band without dwelling and must not be held within it under any circumstance.
+
+SECTION 6: SHUTDOWN AND PRESERVATION
+
+6.1 Following shutdown, turning gear must be engaged within 10 minutes and
+operated continuously until rotor metal temperature falls below 150 degrees
+Celsius.
+
+6.2 For outages exceeding 30 days, the steam path must be preserved with
+dehumidified air maintained below 40 percent relative humidity.

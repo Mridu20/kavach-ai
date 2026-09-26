@@ -1,27 +1,89 @@
-================================================================================
-STANDARD OPERATING PROCEDURE: INDUSTRIAL SAFETY & PRESSURE VESSEL INSPECTION
+STANDARD OPERATING PROCEDURE: INDUSTRIAL SAFETY AND PRESSURE VESSEL INSPECTION
 Document ID: KAVACH-SOP-SAFETY-2025-V3
-Classification: Sovereign Confidential Internal
-================================================================================
+Revision: 3.0
+Effective Date: 01 April 2025
+Issuing Authority: Plant Safety and Integrity Department
+Classification: INTERNAL - CONFIDENTIAL
 
-SECTION 1: OVERVIEW & SCOPE
-1.1 Purpose: To establish mandatory guidelines for inspection, pressure testing, and emergency shutdown of industrial boilers, high-pressure vessels, and fuel pipelines across facility units.
-1.2 Scope: Mandatory for all inspection personnel, field engineers, and automated diagnostic agents.
+SECTION 1: SCOPE AND APPLICABILITY
 
-SECTION 2: CORROSION THRESHOLDS & MANDATORY SHUTDOWN PROTOCOL
-2.1 Corrosion Tolerance Limit:
-    - Maximum allowable wall thickness degradation is 0.5 mm from initial baseline specs.
-    - If non-destructive testing (NDT) reveals wall thinning exceeding 0.5 mm, an immediate emergency shutdown must be initiated within 15 minutes.
-2.2 Inspection Intervals:
-    - Primary containment vessels: Bi-monthly ultrasonic thickness check.
-    - Secondary pressure relief valves: Quarterly recalibration and seal check.
+1.1 This procedure governs the inspection, testing and certification of all
+pressure-retaining equipment operating above 1.0 bar gauge, including pressure
+vessels, heat exchangers, steam drums, separators and associated piping.
 
-SECTION 3: SEAL & VALVE REPLACEMENT PROCEDURES
-3.1 Secondary containment seals: Must be replaced every 12 months, or immediately upon detection of micro-fractures during inspection.
-3.2 Emergency Bypass Valves: Must undergo pneumatic actuation test every 30 days.
+1.2 This procedure applies to all refinery units, utility blocks and offsite
+tankage under the operational control of the plant.
 
-SECTION 4: HAZARD RESPONSE & CONTAINMENT
-4.1 In the event of secondary pressure drop > 5% within 60 seconds:
-    - Step 1: Engage automatic isolation damper.
-    - Step 2: Trigger plant-wide alarm Level 2.
-    - Step 3: Dispatch manual inspection team with safety gear.
+1.3 Personnel performing inspections under this procedure must hold a valid
+Level II certification in the relevant non-destructive testing method.
+
+SECTION 2: CORROSION THRESHOLDS AND MANDATORY SHUTDOWN PROTOCOL
+
+2.1 Corrosion Tolerance Limit. The maximum allowable wall thickness
+degradation for any pressure-retaining component is 0.5 mm measured against
+the original certified thickness recorded in the equipment data book.
+
+2.2 Where ultrasonic thickness measurement reveals wall thinning exceeding
+0.5 mm, an immediate emergency shutdown of the affected equipment must be
+initiated within 15 minutes of the measurement being confirmed by a second
+qualified inspector.
+
+2.3 Equipment shut down under clause 2.2 must not be returned to service until
+a fitness-for-service assessment has been completed and countersigned by the
+Head of Mechanical Integrity.
+
+2.4 Corrosion rate is calculated as the difference between successive thickness
+readings divided by the elapsed interval in years. A corrosion rate exceeding
+0.1 mm per year requires the inspection interval to be halved.
+
+SECTION 3: INSPECTION INTERVALS
+
+3.1 Primary containment vessels: ultrasonic thickness survey every two months
+at designated condition monitoring locations.
+
+3.2 Secondary containment seals must be replaced every 12 months regardless of
+apparent condition, or immediately upon any evidence of weeping or seepage.
+
+3.3 Pressure relief valves must be removed, bench tested and recertified every
+24 months. Set pressure drift beyond 3 percent of nameplate requires the valve
+to be overhauled or replaced.
+
+3.4 External visual inspection of insulated equipment must include removal of
+insulation at a minimum of four inspection windows per vessel to check for
+corrosion under insulation.
+
+SECTION 4: WELD INSPECTION AND DEFECT ACCEPTANCE
+
+4.1 All butt welds in pressure-retaining service require 100 percent
+radiographic or ultrasonic examination prior to commissioning.
+
+4.2 Surface breaking cracks of any length are unacceptable and require the weld
+to be excavated and re-welded under an approved repair procedure.
+
+4.3 Rounded indications up to 3 mm in maximum dimension are acceptable provided
+no more than five such indications appear within any 150 mm length of weld.
+
+4.4 Linear indications exceeding 6 mm require the weld to be rejected and the
+affected section replaced.
+
+SECTION 5: PERSONAL PROTECTIVE EQUIPMENT
+
+5.1 Entry into any confined space requires a valid confined space entry permit,
+continuous atmospheric monitoring and a dedicated standby attendant stationed
+at the point of entry.
+
+5.2 Minimum atmospheric requirements for entry are oxygen between 19.5 and 23.5
+percent by volume, hydrogen sulphide below 10 parts per million, and lower
+explosive limit below 10 percent.
+
+5.3 Flame resistant coveralls, safety helmet, impact resistant eye protection
+and steel toe footwear are mandatory in all process areas at all times.
+
+SECTION 6: INCIDENT REPORTING
+
+6.1 Any breach of the thresholds defined in Section 2 must be reported to the
+Shift Superintendent immediately and logged in the plant incident register
+within one hour.
+
+6.2 A formal root cause analysis must be completed within 14 calendar days for
+any incident involving loss of primary containment.

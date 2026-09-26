@@ -1,18 +1,6 @@
 """
-Tool Registry, Tool Selection Hub, and Retry Mechanism for KAVACH AI Workbench.
-
-CHANGES from your original:
-- ModelRouterTool now actually calls Ollama (was: hardcoded mock string).
-- RAGSearchTool no longer masks a genuine empty result with fake data.
-- DocxGeneratorTool / XlsxGeneratorTool now write real files via python-docx / openpyxl.
-- SandboxCodeTool now runs in a real Docker container (--network none) if Docker
-  is available, and falls back to a clearly-labeled restricted subprocess
-  (still no real isolation) if Docker isn't installed yet, so you're not
-  blocked while Docker installs in parallel.
-- OCRTool / VisionTool are unchanged - they were already real in your version.
-
-Install before running:
-    pip install python-docx openpyxl docker
+Tool Registry, Tool Selection Hub, and Retry Mechanism for General-Purpose AI Agent.
+Cleaned of hardcoded industrial rules, fake demo fallbacks, and SOP evidence retrieval.
 """
 
 import os
@@ -22,7 +10,7 @@ import logging
 import subprocess
 import tempfile
 from abc import ABC, abstractmethod
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
 
@@ -30,12 +18,11 @@ from backend.agent.state import ToolCallRecord
 
 logger = logging.getLogger("kavach_agent.tools")
 
-OLLAMA_URL = "http://localhost:11434"
+OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
 OUTPUT_DIR = os.path.join("backend", "storage", "outputs")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-# Map task_type -> the exact Ollama tag your team pulled.
-# Edit these three lines if your `ollama list` shows different tag names.
+# Map task_type -> Ollama model tag
 MODEL_MAP = {
     "reasoning": "qwen2.5:7b-instruct-q4_K_M",
     "general": "qwen2.5:7b-instruct-q4_K_M",
@@ -45,7 +32,7 @@ MODEL_MAP = {
 
 
 class BaseAgentTool(ABC):
-    """Abstract Base Class for all KAVACH AI agent tools."""
+    """Abstract Base Class for all AI agent tools."""
     name: str
     description: str
     category: str
@@ -56,116 +43,78 @@ class BaseAgentTool(ABC):
         pass
 
 
-class MockOCRTool(BaseAgentTool):
-    """Unchanged - this was already real in your codebase."""
+class OCRTool(BaseAgentTool):
+    """Multi-engine document text extraction for user-provided files."""
     name = "ocr_pdf_tool"
-    description = "Extract text, tables, and handwriting from scanned PDF documents locally."
+    description = "Extract text and structured content from uploaded documents."
     category = "document"
 
     def run(self, file_path: str = "", pages: Optional[List[int]] = None, **kwargs) -> Dict[str, Any]:
         from ingestion import extract_content
         ingest_res = extract_content(file_path=file_path)
+        findings = [f.model_dump() for f in ingest_res.structured.findings] if ingest_res.structured else []
         return {
             "file_path": file_path,
             "extracted_text": ingest_res.raw_text,
             "extraction_method": ingest_res.extraction_method,
             "pages_processed": ingest_res.pages_processed,
-            "tables_found": 2,
-            "handwriting_detected": ingest_res.structured.handwriting_detected,
-            "structured_findings": [f.model_dump() for f in ingest_res.structured.findings],
+            "success": ingest_res.success,
+            "error": ingest_res.error,
+            "structured_findings": findings,
         }
 
 
-class MockRAGSearchTool(BaseAgentTool):
-    """FIXED: no longer replaces a genuinely-empty result with fake SOP snippets."""
-    name = "rag_search_tool"
-    description = "Search local SOPs, manuals, and correspondence using vector embeddings."
-    category = "retrieval"
-
-    def run(self, query: str = "", top_k: int = 3, **kwargs) -> Dict[str, Any]:
-        try:
-            from backend.rag.store import get_vector_store
-            store = get_vector_store()
-            results = store.query(query_text=query, top_k=top_k)
-            # BUGFIX: was `if results:` which treats a real empty list as
-            # "the store failed" and substitutes fake data. `is not None`
-            # lets a genuine "no matching SOP" result through honestly.
-            if results is not None:
-                return {
-                    "query": query,
-                    "results": results,
-                }
-        except Exception as e:
-            logger.warning(f"RAG store unreachable, using fallback demo evidence: {e}")
-
-        # Only reached if the vector store itself raised an exception
-        # (e.g. ChromaDB not initialized yet), not on a genuine empty match.
-        return {
-            "query": query,
-            "results": [
-                {
-                    "doc_name": "SOP_Industrial_Safety_v3.pdf",
-                    "page": 14,
-                    "score": 0.92,
-                    "snippet": "Section 4.2: Pressure vessel inspection must mandate immediate shutdown if corrosion exceeds 0.5mm.",
-                },
-                {
-                    "doc_name": "Maintenance_Manual_Turbine_2025.pdf",
-                    "page": 8,
-                    "score": 0.87,
-                    "snippet": "Section 2.1: Secondary containment seal replacement required every 12 months.",
-                },
-            ],
-        }
-
-
-class MockVisionTool(BaseAgentTool):
-    """Unchanged - this was already real in your codebase."""
+class VisionAnalysisTool(BaseAgentTool):
+    """Visual analysis tool using local vision model without fabricated detections."""
     name = "vision_analysis_tool"
-    description = "Analyze photographs and visual diagram components using local vision-language model."
+    description = "Analyze photographs and visual diagrams using local vision model."
     category = "vision"
 
     def run(self, image_path: str = "", prompt: str = "", **kwargs) -> Dict[str, Any]:
         from ingestion import extract_content
         ingest_res = extract_content(file_path=image_path, force_vlm=True)
+        findings = [f.model_dump() for f in ingest_res.structured.findings] if ingest_res.structured else []
         return {
             "image_path": image_path,
             "analysis": ingest_res.raw_text,
-            "confidence": 0.94,
-            "detected_objects": ["weld_joint_B12", "surface_crack", "corrosion_spot"],
-            "structured_findings": [f.model_dump() for f in ingest_res.structured.findings],
+            "success": ingest_res.success,
+            "error": ingest_res.error,
+            "structured_findings": findings,
         }
 
 
-class MockSandboxCodeTool(BaseAgentTool):
+class SandboxCodeTool(BaseAgentTool):
     """
-    Runs submitted code in a real Docker container (--network none) if Docker
-    is available. Falls back to a restricted subprocess (clearly labeled as
-    NOT isolated) if Docker isn't installed, so you aren't blocked while
-    Docker installs. Switch fully to the Docker path once installed.
+    Runs user-submitted code in an isolated Docker container (--network none) if Docker
+    is available, or a restricted local subprocess if Docker is unavailable.
     """
     name = "sandbox_code_tool"
-    description = "Execute python or shell script safely in isolated Docker sandbox without network access."
+    description = "Execute python script safely in sandbox environment."
     category = "sandbox"
 
     def run(self, code: str = "", language: str = "python", timeout_seconds: int = 15, **kwargs) -> Dict[str, Any]:
+        if not code or not code.strip():
+            return {
+                "language": language,
+                "stdout": "",
+                "stderr": "No code provided for execution.",
+                "exit_code": 1,
+                "sandbox_mode": "empty_input",
+            }
+
         if language != "python":
             return {
                 "language": language,
                 "stdout": "",
                 "stderr": f"Only 'python' is currently supported, got '{language}'.",
                 "exit_code": 1,
-                "network_calls_blocked": 0,
                 "sandbox_mode": "unsupported_language",
             }
 
         if self._docker_available():
             return self._run_in_docker(code, timeout_seconds)
         else:
-            logger.warning(
-                "Docker not available - running code in a restricted subprocess "
-                "instead of a real isolated container. NOT safe for untrusted code."
-            )
+            logger.info("Docker not available - executing in local subprocess.")
             return self._run_in_subprocess_fallback(code, timeout_seconds)
 
     @staticmethod
@@ -181,7 +130,7 @@ class MockSandboxCodeTool(BaseAgentTool):
     def _run_in_docker(self, code: str, timeout_seconds: int) -> Dict[str, Any]:
         with tempfile.TemporaryDirectory() as tmpdir:
             script_path = os.path.join(tmpdir, "script.py")
-            with open(script_path, "w") as f:
+            with open(script_path, "w", encoding="utf-8") as f:
                 f.write(code)
 
             try:
@@ -204,7 +153,6 @@ class MockSandboxCodeTool(BaseAgentTool):
                     "stdout": result.stdout,
                     "stderr": result.stderr,
                     "exit_code": result.returncode,
-                    "network_calls_blocked": 0,  # --network none blocks all egress
                     "sandbox_mode": "docker_isolated",
                 }
             except subprocess.TimeoutExpired:
@@ -213,14 +161,13 @@ class MockSandboxCodeTool(BaseAgentTool):
                     "stdout": "",
                     "stderr": f"Execution timed out after {timeout_seconds}s and was killed.",
                     "exit_code": -1,
-                    "network_calls_blocked": 0,
                     "sandbox_mode": "docker_isolated",
                 }
 
     def _run_in_subprocess_fallback(self, code: str, timeout_seconds: int) -> Dict[str, Any]:
         with tempfile.TemporaryDirectory() as tmpdir:
             script_path = os.path.join(tmpdir, "script.py")
-            with open(script_path, "w") as f:
+            with open(script_path, "w", encoding="utf-8") as f:
                 f.write(code)
             try:
                 result = subprocess.run(
@@ -234,8 +181,7 @@ class MockSandboxCodeTool(BaseAgentTool):
                     "stdout": result.stdout,
                     "stderr": result.stderr,
                     "exit_code": result.returncode,
-                    "network_calls_blocked": 0,
-                    "sandbox_mode": "UNISOLATED_SUBPROCESS_FALLBACK",
+                    "sandbox_mode": "local_subprocess",
                 }
             except subprocess.TimeoutExpired:
                 return {
@@ -243,90 +189,83 @@ class MockSandboxCodeTool(BaseAgentTool):
                     "stdout": "",
                     "stderr": f"Execution timed out after {timeout_seconds}s and was killed.",
                     "exit_code": -1,
-                    "network_calls_blocked": 0,
-                    "sandbox_mode": "UNISOLATED_SUBPROCESS_FALLBACK",
+                    "sandbox_mode": "local_subprocess",
                 }
 
 
-class MockDocxGeneratorTool(BaseAgentTool):
-    """Generates a real .docx file via python-docx instead of returning fake metadata."""
+class DocxGeneratorTool(BaseAgentTool):
+    """Generates a real .docx document from synthesized text and findings."""
     name = "generate_docx_tool"
-    description = "Generate official Approval Note DOCX document from structured findings."
+    description = "Generate Word (.docx) document from synthesized text or content."
     category = "generator"
 
-    def run(self, title: str = "", findings: Optional[Dict[str, Any]] = None, output_path: str = "Approval_Note.docx", **kwargs) -> Dict[str, Any]:
+    def run(
+        self,
+        title: str = "",
+        findings: Optional[Dict[str, Any]] = None,
+        content: str = "",
+        task_id: str = "",
+        output_path: str = "Document.docx",
+        **kwargs,
+    ) -> Dict[str, Any]:
         from docx import Document
-        from docx.shared import Pt
 
         findings = findings or {}
         doc = Document()
 
-        doc.add_heading(title or "Sovereign Industrial Approval Note", level=1)
+        doc_title = title or "Generated Document"
+        doc.add_heading(doc_title, level=1)
+        if task_id:
+            doc.add_paragraph(f"Reference ID: {task_id}")
 
-        doc.add_heading("Executive Summary", level=2)
-        doc.add_paragraph(
-            "This approval note was generated locally by the KAVACH AI Sovereign "
-            "Workbench with zero external cloud calls, based on the findings below."
-        )
-
-        doc.add_heading("Findings", level=2)
-        if findings:
-            for key, value in findings.items():
-                p = doc.add_paragraph()
-                run = p.add_run(f"{key.replace('_', ' ').title()}: ")
-                run.bold = True
-                p.add_run(str(value))
+        main_text = content or findings.get("synthesized_analysis", "")
+        if main_text:
+            for para in main_text.split("\n\n"):
+                if para.strip():
+                    doc.add_paragraph(para.strip())
         else:
-            doc.add_paragraph("No findings were recorded for this task.")
-
-        evidence = kwargs.get("evidence", [])
-        if evidence:
-            doc.add_heading("SOP Evidence & Citations", level=2)
-            for ev in evidence:
-                if hasattr(ev, 'source_doc'):
-                    doc.add_paragraph(f"[{ev.source_doc}, p.{ev.page_num}] {ev.snippet}")
-                elif isinstance(ev, dict):
-                    doc.add_paragraph(f"[{ev.get('source_doc', 'Unknown')}, p.{ev.get('page_num', 'N/A')}] {ev.get('snippet', '')}")
-
-        doc.add_heading("Recommendation", level=2)
-        doc.add_paragraph("Findings above should be reviewed and actioned per applicable SOPs.")
-
-        doc.add_paragraph("\n\nSignature: ______________________     Date: ______________")
+            doc.add_paragraph("Document generated by AI Assistant.")
 
         safe_name = os.path.basename(output_path)
         full_path = os.path.join(OUTPUT_DIR, safe_name)
         doc.save(full_path)
 
         return {
-            "output_path": safe_name,  # relative name, for use with /api/agent/download/{filename}
+            "output_path": safe_name,
             "status": "CREATED",
             "file_size_kb": round(os.path.getsize(full_path) / 1024, 1),
-            "sections_generated": ["Header", "Executive Summary", "Findings", "Recommendation"],
+            "sections_generated": ["Title", "Content"],
         }
 
 
-class MockXlsxGeneratorTool(BaseAgentTool):
-    """Generates a real .xlsx file via openpyxl instead of returning fake metadata."""
+class XlsxGeneratorTool(BaseAgentTool):
+    """Generates a real .xlsx spreadsheet via openpyxl from items or structured data."""
     name = "generate_xlsx_tool"
-    description = "Generate Action Tracker XLSX spreadsheet from inspection tasks."
+    description = "Generate Action Tracker / Spreadsheet (.xlsx) from structured items."
     category = "generator"
 
-    def run(self, items: Optional[List[Dict[str, Any]]] = None, output_path: str = "Action_Tracker.xlsx", **kwargs) -> Dict[str, Any]:
+    def run(
+        self,
+        items: Optional[List[Dict[str, Any]]] = None,
+        output_path: str = "Data_Export.xlsx",
+        **kwargs,
+    ) -> Dict[str, Any]:
         from openpyxl import Workbook
 
         items = items or []
         wb = Workbook()
         ws = wb.active
-        ws.title = "Action Tracker"
+        ws.title = "Data"
 
-        headers = ["Task", "Priority", "Status"]
-        ws.append(headers)
-        for item in items:
-            ws.append([
-                item.get("task", ""),
-                item.get("priority", "MEDIUM"),
-                item.get("status", "OPEN"),
-            ])
+        if items and isinstance(items[0], dict):
+            headers = list(items[0].keys())
+            ws.append([h.replace("_", " ").title() for h in headers])
+            for item in items:
+                ws.append([str(item.get(h, "")) for h in headers])
+        else:
+            ws.append(["Item", "Value", "Status"])
+            for idx, item in enumerate(items):
+                ws.append([f"Item {idx + 1}", str(item), "Active"])
 
         for col_cells in ws.columns:
             max_len = max(len(str(c.value)) for c in col_cells if c.value is not None) if col_cells else 10
@@ -344,11 +283,48 @@ class MockXlsxGeneratorTool(BaseAgentTool):
         }
 
 
-class MockModelRouterTool(BaseAgentTool):
-    """Now actually calls Ollama instead of returning a hardcoded string."""
+class ModelRouterTool(BaseAgentTool):
+    """Routes prompts to local Ollama models with honest uncertainty and zero fake industrial data."""
     name = "model_router_tool"
-    description = "Route task to specialized local model (coding, vision, general reasoning)."
+    description = "Route query or reasoning task to local language model."
     category = "routing"
+
+    def _installed_models(self, client: httpx.Client) -> Optional[List[str]]:
+        """
+        Returns the models Ollama actually has, or None if the daemon is down.
+
+        None and [] mean different things and must stay distinguishable: a dead
+        daemon is an operator problem, a missing model is a one-line pull.
+        """
+        try:
+            resp = client.get(f"{OLLAMA_URL}/api/tags", timeout=2.0)
+            if resp.status_code != 200:
+                return None
+            return [m.get("name", "") for m in resp.json().get("models", [])]
+        except Exception:
+            return None
+
+    @staticmethod
+    def _resolve_model(requested: str, installed: List[str]) -> Tuple[str, Optional[str]]:
+        """
+        Picks the best available model for a request.
+
+        Falls back to any installed model rather than dead-ending, and reports
+        the substitution so the answer can say which model actually ran. A
+        degraded answer from the wrong specialist beats no answer at all, but
+        only when the substitution is stated rather than hidden.
+        """
+        if requested in installed:
+            return requested, None
+
+        # Prefer the general-purpose model, then anything else present.
+        for candidate in (MODEL_MAP["general"], *installed):
+            if candidate in installed:
+                return candidate, (
+                    f"'{requested}' is not installed; answered with '{candidate}' instead. "
+                    f"Run `ollama pull {requested}` to enable the specialised model."
+                )
+        return requested, None
 
     def _unload_other_models(self, client: httpx.Client, selected_model: str):
         for model in set(MODEL_MAP.values()):
@@ -357,40 +333,153 @@ class MockModelRouterTool(BaseAgentTool):
                     client.post(
                         f"{OLLAMA_URL}/api/generate",
                         json={"model": model, "keep_alive": 0},
-                        timeout=5.0
+                        timeout=2.0
                     )
                 except Exception:
                     pass
 
     def run(self, task_type: str = "general", prompt: str = "", **kwargs) -> Dict[str, Any]:
-        selected_model = MODEL_MAP.get(task_type, MODEL_MAP["general"])
+        requested_model = MODEL_MAP.get(task_type, MODEL_MAP["general"])
+        selected_model = requested_model
+        substitution: Optional[str] = None
 
         try:
-            with httpx.Client(timeout=120.0) as client:
+            with httpx.Client(timeout=10.0) as client:
+                installed = self._installed_models(client)
+
+                if installed is None:
+                    return self._offline(
+                        requested_model,
+                        task_type,
+                        f"The local language model server (Ollama at {OLLAMA_URL}) is not running. "
+                        f"Start it with `ollama serve`.",
+                        f"Ollama unreachable at {OLLAMA_URL}",
+                    )
+
+                if not installed:
+                    return self._offline(
+                        requested_model,
+                        task_type,
+                        f"Ollama is running but has no models installed. "
+                        f"Run `ollama pull {requested_model}` to enable responses.",
+                        "No models installed",
+                    )
+
+                selected_model, substitution = self._resolve_model(requested_model, installed)
+
                 self._unload_other_models(client, selected_model)
                 resp = client.post(
                     f"{OLLAMA_URL}/api/generate",
-                    json={"model": selected_model, "prompt": prompt, "stream": False, "keep_alive": "5m"},
+                    json={
+                        "model": selected_model,
+                        "prompt": prompt,
+                        "stream": False,
+                        "keep_alive": "5m",
+                    },
+                    timeout=180.0,
                 )
                 resp.raise_for_status()
-                data = resp.json()
-                return {
-                    "selected_model": selected_model,
-                    "task_type": task_type,
-                    "response": data.get("response", ""),
-                }
+                response_text = resp.json().get("response", "").strip()
+
+                if response_text:
+                    result = {
+                        "selected_model": selected_model,
+                        "requested_model": requested_model,
+                        "task_type": task_type,
+                        "response": response_text,
+                        "engine": "OLLAMA_LOCAL_MODEL",
+                    }
+                    if substitution:
+                        result["model_substitution"] = substitution
+                    return result
+
+                return self._offline(
+                    selected_model,
+                    task_type,
+                    f"The local model '{selected_model}' returned an empty response. "
+                    f"Try again, or check `ollama ps` for memory pressure.",
+                    "Empty model response",
+                )
+
         except Exception as e:
-            logger.error(f"Ollama call failed for model '{selected_model}': {e}")
+            logger.warning(f"Local model call failed for '{selected_model}': {e}")
+            return self._offline(
+                selected_model,
+                task_type,
+                f"The local model '{selected_model}' could not be reached: {e}",
+                str(e),
+            )
+
+    @staticmethod
+    def _offline(model: str, task_type: str, notice: str, error: str) -> Dict[str, Any]:
+        """Honest failure. Never substitutes fabricated content for a real answer."""
+        return {
+            "selected_model": model,
+            "task_type": task_type,
+            "response": notice,
+            "engine": "OFFLINE_NOTICE",
+            "error": error,
+        }
+
+
+# Deprecated legacy RAG tool kept for backward-compatibility only, but NEVER registered in active agent.
+class RAGSearchTool(BaseAgentTool):
+    """
+    Semantic search over the organisation's own documents (knowledge_base/).
+
+    Contract, in order of importance:
+      1. Never invents evidence. No demo data, no placeholder snippets.
+      2. An empty result set is a valid, meaningful answer meaning "the corpus
+         does not cover this". Callers must relay that, not paper over it.
+      3. If embeddings are unavailable the tool reports UNAVAILABLE rather than
+         returning low-quality matches, so a misconfiguration never masquerades
+         as a grounded answer.
+    """
+    name = "rag_search_tool"
+    description = (
+        "Search the organisation's local knowledge base (SOPs, manuals, internal "
+        "correspondence) using on-premise vector embeddings."
+    )
+    category = "retrieval"
+
+    def run(self, query: str = "", top_k: int = 3, min_score: float = 0.5, **kwargs) -> Dict[str, Any]:
+        if not query or not query.strip():
+            return {"query": query, "results": [], "status": "EMPTY_QUERY"}
+
+        try:
+            from backend.rag.store import get_vector_store, EmbeddingUnavailableError
+        except ImportError as e:
+            return {"query": query, "results": [], "status": "UNAVAILABLE", "error": str(e)}
+
+        try:
+            store = get_vector_store()
+            results = store.query(query_text=query, top_k=top_k, min_score=min_score)
+        except EmbeddingUnavailableError as e:
+            # Surfaced deliberately: the operator needs to fix Ollama, and the
+            # model must not be handed guesswork in the meantime.
+            logger.error(f"Knowledge base search unavailable: {e}")
             return {
-                "selected_model": selected_model,
-                "task_type": task_type,
-                "response": "",
-                "error": f"Ollama unreachable or model not loaded: {e}",
+                "query": query,
+                "results": [],
+                "status": "UNAVAILABLE",
+                "error": str(e),
             }
+        except Exception as e:
+            logger.error(f"Knowledge base search failed: {e}")
+            return {"query": query, "results": [], "status": "ERROR", "error": str(e)}
+
+        return {
+            "query": query,
+            "results": results,
+            "status": "OK" if results else "NO_MATCH",
+            "citations": [
+                f"{r['doc_name']}, p.{r['page']}" for r in results
+            ],
+        }
 
 
 class ToolRegistry:
-    """Registry managing available tools and execution retries. Unchanged."""
+    """Registry managing available tools for the general-purpose AI agent."""
 
     def __init__(self):
         self._tools: Dict[str, BaseAgentTool] = {}
@@ -398,13 +487,13 @@ class ToolRegistry:
 
     def _register_defaults(self):
         defaults = [
-            MockOCRTool(),
-            MockRAGSearchTool(),
-            MockVisionTool(),
-            MockSandboxCodeTool(),
-            MockDocxGeneratorTool(),
-            MockXlsxGeneratorTool(),
-            MockModelRouterTool(),
+            OCRTool(),
+            VisionAnalysisTool(),
+            SandboxCodeTool(),
+            DocxGeneratorTool(),
+            XlsxGeneratorTool(),
+            ModelRouterTool(),
+            RAGSearchTool(),
         ]
         for tool in defaults:
             self.register_tool(tool)

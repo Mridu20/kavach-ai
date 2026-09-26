@@ -27,3 +27,10 @@ backend/storage/test_chroma_db/
 
 # OS
 .DS_Store
+
+# Local databases. Never commit these: conversations.db holds user accounts
+# (bcrypt password hashes, session tokens) and every user's chat history.
+# Each machine creates its own on first run.
+backend/storage/*.db
+backend/storage/test_auth/
+backend/storage/test_conversations/

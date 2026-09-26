@@ -9,11 +9,12 @@ from pydantic import BaseModel, Field
 
 
 class TaskCategory(str, Enum):
-    DOCUMENT_INSPECTION = "DOCUMENT_INSPECTION"
-    SOP_RAG_QUERY = "SOP_RAG_QUERY"
+    GENERAL_REASONING = "GENERAL_REASONING"
+    DOCUMENT_ANALYSIS = "DOCUMENT_ANALYSIS"
+    DOCUMENT_INSPECTION = "DOCUMENT_INSPECTION"  # Legacy alias
     SANDBOX_CODE_EXECUTION = "SANDBOX_CODE_EXECUTION"
     DELIVERABLE_GENERATION = "DELIVERABLE_GENERATION"
-    GENERAL_REASONING = "GENERAL_REASONING"
+    SOP_RAG_QUERY = "SOP_RAG_QUERY"  # Legacy alias
 
 
 class StepStatus(str, Enum):
@@ -107,6 +108,11 @@ class AgentState(BaseModel):
     task_id: str
     user_query: str
     input_files: List[str] = Field(default_factory=list)
+    conversation_id: Optional[str] = None
+    # Prior turns as {"role": "user"|"assistant", "content": str}, oldest first.
+    # Populated by the API layer from the conversation store so the model can
+    # resolve references like "explain that further".
+    conversation_history: List[Dict[str, str]] = Field(default_factory=list)
     category: TaskCategory = TaskCategory.GENERAL_REASONING
     plan: List[PlanStep] = Field(default_factory=list)
     current_step_index: int = 0
@@ -114,13 +120,25 @@ class AgentState(BaseModel):
     retrieved_evidence: List[EvidenceItem] = Field(default_factory=list)
     findings: Dict[str, Any] = Field(default_factory=dict)
     draft_deliverables: Dict[str, str] = Field(default_factory=dict)  # e.g., {"approval_note": "path/to/docx"}
+    text_response: Optional[str] = None
+    calculation_details: Optional[Dict[str, Any]] = None
+    multi_doc_comparison: Optional[Dict[str, Any]] = None
+    cancellation_requested: bool = False
     verification: Optional[VerificationResult] = None
     approval: HumanApprovalState = Field(default_factory=HumanApprovalState)
     trace: AgentTrace = Field(default_factory=lambda: AgentTrace(task_id=""))
-    status: str = "INITIALIZED"  # INITIALIZED, PLANNING, EXECUTING, VERIFYING, AWAITING_APPROVAL, COMPLETED, REJECTED, FAILED
+    status: str = "INITIALIZED"  # INITIALIZED, PLANNING, EXECUTING, VERIFYING, AWAITING_APPROVAL, COMPLETED, REJECTED, FAILED, CANCELLED
     error: Optional[str] = None
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     updated_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+    def request_cancel(self) -> None:
+        self.cancellation_requested = True
+        self.status = "CANCELLED"
+        self.add_trace_event(
+            event_type="CANCELLED",
+            message="Execution halted by user interruption (Stop command).",
+        )
 
     def add_trace_event(self, event_type: str, message: str, payload: Optional[Dict[str, Any]] = None) -> TraceEvent:
         if payload is None:
